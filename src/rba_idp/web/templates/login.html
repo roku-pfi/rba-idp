@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · RBA Identity</title>
+  <link rel="stylesheet" href="/static/login.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="brand">
+      <p class="brand-mark">RBA Identity</p>
+      <p class="brand-sub">Risk-based sign-in</p>
+    </header>
+
+    <main class="card" id="card">
+      <section id="panel-unknown" hidden>
+        <h1>Unknown application</h1>
+        <p class="lede">This IdP has no registered client with that id. Apps must send users here with a known <code>application_id</code>.</p>
+      </section>
+
+      <section id="panel-credentials">
+        <h1 id="credentials-title">Sign in</h1>
+        <p class="lede" id="credentials-lede">Continue to the application.</p>
+        <form id="form-login" autocomplete="on">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <p class="form-error" id="login-error" hidden></p>
+          <button type="submit" id="login-submit">Continue</button>
+        </form>
+      </section>
+
+      <section id="panel-challenge" hidden>
+        <h1 id="challenge-title">Verify it’s you</h1>
+        <p class="lede" id="challenge-lede">This sign-in needs a step-up.</p>
+        <div class="decision" id="challenge-decision"></div>
+        <form id="form-mfa">
+          <label for="otp">One-time code</label>
+          <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="8">
+          <p class="hint">Thesis mock OTP: <code>000000</code></p>
+          <p class="form-error" id="mfa-error" hidden></p>
+          <button type="submit" id="mfa-submit">Verify</button>
+        </form>
+        <p class="back"><a href="#" id="challenge-restart">Use a different account</a></p>
+      </section>
+
+      <section id="panel-blocked" hidden>
+        <h1>Sign-in blocked</h1>
+        <p class="lede">The risk policy rejected this attempt. No session was created.</p>
+        <div class="decision" id="blocked-decision"></div>
+        <p class="back"><a href="#" id="blocked-restart">Try again</a></p>
+      </section>
+
+      <section id="panel-session" hidden>
+        <h1>Signed in</h1>
+        <p class="lede" id="session-lede"></p>
+        <dl class="facts" id="session-facts"></dl>
+        <div class="decision" id="session-decision"></div>
+        <form id="form-logout">
+          <button type="submit" class="secondary" id="logout-submit">Sign out</button>
+        </form>
+      </section>
+
+      <section id="panel-unavailable" hidden>
+        <h1>Sign-in unavailable</h1>
+        <p class="lede">The risk service did not answer. This IdP fails closed — it does not invent a block.</p>
+        <p class="back"><a href="#" id="unavailable-restart">Try again</a></p>
+      </section>
+    </main>
+
+    <p class="foot">Passwords stay on this IdP. Scoring is delegated to the PDP.</p>
+  </div>
+
+  <script type="application/json" id="boot">{{ boot | tojson }}</script>
+  <script src="/static/login.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-"""FastAPI application factory. IdP-4: PDP enforce, session, mock MFA."""
+"""FastAPI application factory. IdP-5: hosted login UI on the IdP origin."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from rba_contracts import LoginRequest, LoginResponse, MfaVerifyRequest, SessionResponse
 
 from rba_idp.config import Settings, get_settings
@@ -15,6 +17,8 @@ from rba_idp.db.session import create_tables, make_engine, make_session_factory
 from rba_idp.pdp import HttpPdpClient, PdpClient
 from rba_idp.seed import seed_identity
 from rba_idp.services.login import LoginService
+from rba_idp.web import WEB_DIR
+from rba_idp.web.context import hosted_boot
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +47,7 @@ def create_app(
         app.state.session_factory = session_factory
         app.state.login_service = LoginService(session_factory, pdp, settings)
         logger.info(
-            "rba-idp ready (IdP-4: session + mock MFA). seed app=%s user=%s pdp=%s",
+            "rba-idp ready (IdP-5: hosted login). seed app=%s user=%s pdp=%s",
             settings.seed_application_id,
             settings.seed_email,
             settings.pdp_base_url,
@@ -58,6 +62,24 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+    templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+    app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+
+    def hosted_login(request: Request, application_id: str | None = None):
+        boot = hosted_boot(request, settings, application_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"boot": boot},
+        )
+
+    @app.get("/", include_in_schema=False)
+    def home(request: Request, application_id: str | None = None):
+        return hosted_login(request, application_id)
+
+    @app.get("/login", include_in_schema=False)
+    def login_page(request: Request, application_id: str | None = None):
+        return hosted_login(request, application_id)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

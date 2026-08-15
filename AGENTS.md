@@ -11,18 +11,17 @@ status / decisions live in the **`docs`** repo (`../docs`):
 
 - **Current status → `../docs/plans/status.md`**
 - Phase rationale → `../docs/plans/development_plan.md` §8 Phase 7
-- Decisions → `../docs/decisions/` (ADR-0012–0015)
+- Decisions → `../docs/decisions/` (ADR-0012–0016)
 - Narrative → `../docs/devlog.md`
 
-**This slice is IdP-4:** session token on `ALLOW`; mock OTP challenge on
-MFA/REAUTH; `BLOCK` rejected. Do **not** add hosted UI, admin, or OIDC until
-those stages.
+**This slice is IdP-5:** hosted login HTML on this origin. Do **not** add admin
+or OIDC until those stages ([ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
 
 ## Layout
 
 ```
 src/rba_idp/
-  main.py                 # FastAPI: /login /mfa/verify /session /logout
+  main.py                 # FastAPI: HTML GET / /login + JSON API
   config.py               # pydantic-settings
   passwords.py            # bcrypt
   pdp.py                  # HttpPdpClient → /risk/evaluate
@@ -30,9 +29,11 @@ src/rba_idp/
   seed.py                 # demo user + demo-banking-app
   db/                     # applications, users, sessions, mfa_challenges
   services/login.py       # verify + PDP enforce + session/challenge
+  web/                    # hosted login templates + static
 tests/test_login.py
 tests/test_pdp.py
 tests/test_session.py
+tests/test_hosted_login.py
 ```
 
 ## Guardrails
@@ -43,7 +44,8 @@ tests/test_session.py
   the password (or email) to the PDP. Completing MFA does **not** re-score.
 - Do **not** put identity in `decision-service`.
 - Do **not** implement OIDC/SAML/SCIM (ADR-0014).
-- Do **not** add hosted login HTML yet (IdP-5).
+- Do **not** add an admin console yet (IdP-6). Hosted login stays here, not a
+  new `rba-frontend` repo (ADR-0016).
 - Passwords: bcrypt only; never log or return the password.
 - Session tokens: opaque, stored hashed; `Authorization: Bearer`.
 - MFA: mock OTP (`000000`) is enough. No WebAuthn/TOTP provider.

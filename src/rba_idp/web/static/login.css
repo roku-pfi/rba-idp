@@ -1,0 +1,197 @@
+:root {
+  --ink: #1c1814;
+  --muted: #5c564e;
+  --paper: #f3eee6;
+  --card: #fffaf3;
+  --line: #d9d0c3;
+  --accent: #9a3412;
+  --accent-hover: #7c2d12;
+  --danger: #9f1239;
+  --ok: #3f6212;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 500px at 10% -10%, #e8dcc8 0%, transparent 55%),
+    var(--paper);
+  color: var(--ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+}
+
+.shell {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.25rem 2rem;
+}
+
+.brand-mark {
+  margin: 0;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-weight: 650;
+}
+
+.brand-sub {
+  margin: 0.2rem 0 1.5rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 1.6rem 1.5rem 1.4rem;
+  box-shadow: 0 12px 40px rgba(28, 24, 20, 0.06);
+}
+
+h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0 0 1.2rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+label {
+  display: block;
+  margin: 0.85rem 0 0.3rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+input {
+  width: 100%;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+}
+
+input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  display: block;
+  width: 100%;
+  margin-top: 1.15rem;
+  padding: 0.7rem 0.9rem;
+  border: 0;
+  border-radius: 2px;
+  background: var(--accent);
+  color: #fffaf3;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover { background: var(--accent-hover); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+button.secondary:hover { background: #efe8dc; }
+
+.form-error {
+  margin: 0.7rem 0 0;
+  color: var(--danger);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.88rem;
+}
+
+.hint, .back, .foot {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.hint { margin: 0.45rem 0 0; }
+.back { margin: 1rem 0 0; }
+.foot { margin: 1.4rem 0 0; text-align: center; }
+a { color: var(--accent); }
+
+code {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.85em;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 1rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.88rem;
+}
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+
+.decision {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.9rem;
+  border-left: 3px solid var(--ink);
+  background: #efe8dc;
+}
+
+.decision h2 {
+  margin: 0 0 0.45rem;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.badge {
+  display: inline-block;
+  margin-right: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 2px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  background: var(--ink);
+  color: var(--card);
+}
+
+.badge.LOW { background: var(--ok); }
+.badge.MEDIUM { background: #a16207; }
+.badge.HIGH { background: var(--accent); }
+.badge.CRITICAL { background: var(--danger); }
+
+.reasons {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.reasons li { margin: 0.25rem 0; }
+.reasons .signal {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.78rem;
+  color: var(--muted);
+}

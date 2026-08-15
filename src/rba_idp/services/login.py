@@ -1,4 +1,4 @@
-"""Password verify, PDP enforce, session on ALLOW, mock MFA/reauth (IdP-4)."""
+"""Password verify, PDP enforce, session on ALLOW, mock MFA/reauth."""
 
 from __future__ import annotations
 

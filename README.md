@@ -4,19 +4,23 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**IdP-4 (this slice):** after password verify + PDP, issue a session on `ALLOW`
-or a mock-OTP challenge on MFA/REAUTH. `BLOCK` stays rejected. No hosted HTML
-(that is **IdP-5**). No admin console (**IdP-6**). No OIDC/SAML/SCIM
-([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)).
+**IdP-5 (this slice):** hosted login page on the IdP origin (`GET /` and
+`GET /login`). Apps send users here. The page calls the JSON API; PDP reasons
+are shown on MFA / reauth / block / success. No admin console (**IdP-6**). No
+OIDC/SAML/SCIM ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
+[ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
 
 Package version: **0.1.0**. Pins `rba-contracts` ≥ 0.2.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
-> ADRs: 0012–0015. AI: [`AGENTS.md`](AGENTS.md).
+> ADRs: 0012–0016. AI: [`AGENTS.md`](AGENTS.md).
 
-## Request path (IdP-4)
+## Request path
 
 ```
+browser  GET /login?application_id=demo-banking-app
+           → HTML (email / password / MFA / blocked / signed-in)
+           → POST /login  (JSON; ip_address from the page boot payload)
 client → POST /login
            → lookup application (rba_idp)
            → verify password (bcrypt)
@@ -34,8 +38,9 @@ client → POST /login
 | `BLOCK` | `BLOCKED` | nothing |
 
 Wrong password / unknown user → `INVALID_CREDENTIALS` (HTTP 200, **no** PDP
-call). Unknown `application_id` → HTTP 400. PDP down / invalid response →
-HTTP 503 (fail closed; not a fake `BLOCK`).
+call). Unknown `application_id` → HTTP 400 (JSON) or an “unknown application”
+panel (HTML). PDP down / invalid response → HTTP 503 (fail closed; not a fake
+`BLOCK`).
 
 Mock OTP is always `000000` (thesis stand-in, not TOTP/WebAuthn). Completing
 MFA does **not** re-score. Wrong code → `INVALID_CREDENTIALS` (challenge stays
@@ -45,12 +50,13 @@ open until expiry). Success → same `LoginResponse` shape with a session.
 
 Password never leaves this service (not logged, not returned, not sent to the
 PDP). Session tokens are opaque random strings, stored **hashed** (sha256).
+The hosted page keeps the token in `sessionStorage` and sends it as Bearer.
 
 ## Layout
 
 ```
 src/rba_idp/
-├── main.py              # FastAPI factory + routes
+├── main.py              # FastAPI factory + JSON routes + hosted HTML
 ├── config.py            # pydantic-settings
 ├── passwords.py         # bcrypt hash / verify
 ├── pdp.py               # HttpPdpClient → /risk/evaluate
@@ -58,13 +64,18 @@ src/rba_idp/
 ├── seed.py              # demo user + demo-banking-app (idempotent)
 ├── db/models.py         # applications, users, sessions, mfa_challenges
 ├── db/session.py
-└── services/login.py    # verify + PDP + session/challenge
+├── services/login.py    # verify + PDP + session/challenge
+└── web/                 # IdP-5 hosted login
+    ├── context.py       # application lookup + client IP
+    ├── templates/login.html
+    └── static/login.{css,js}
 tests/
 ├── conftest.py          # in-memory sqlite + stub PDP
 ├── helpers.py
 ├── test_login.py
 ├── test_pdp.py
-└── test_session.py
+├── test_session.py
+└── test_hosted_login.py
 ```
 
 ## HTTP API
@@ -73,6 +84,8 @@ Contracts: `../rba-contracts/openapi/idp.yaml`. Default port **8001**.
 
 | Method | Path | Notes |
 |---|---|---|
+| `GET` | `/` or `/login` | Hosted UI. Query `application_id` (default: seeded app) |
+| `GET` | `/static/…` | Login CSS / JS |
 | `GET` | `/healthz` | `{ "status": "ok" }` |
 | `POST` | `/login` | `LoginRequest` → `LoginResponse` |
 | `POST` | `/mfa/verify` | `MfaVerifyRequest` → `LoginResponse` |
@@ -82,6 +95,10 @@ Contracts: `../rba-contracts/openapi/idp.yaml`. Default port **8001**.
 HTTP 400: unknown/expired challenge, unknown application.
 HTTP 401: missing/expired/unknown session.
 HTTP 503: PDP unavailable.
+
+The hosted page injects `ip_address` from `X-Forwarded-For` (first hop) or the
+peer address, and sends `user_agent` / device hints from the browser. JSON
+clients still supply those fields themselves.
 
 ### Postgres tables (DB `rba_idp`)
 
@@ -109,6 +126,9 @@ DATABASE_URL=postgresql+psycopg://rba:rba@localhost:5432/rba_idp \
 PDP_BASE_URL=http://localhost:8000 \
 uvicorn rba_idp.main:app --reload --port 8001
 ```
+
+Open [http://localhost:8001/login](http://localhost:8001/login) (or pass
+`?application_id=demo-banking-app`).
 
 If Postgres was initialized **before** `rba_idp` existed:
 
@@ -153,6 +173,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8001/logout \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+`curl` `GET /login` returns HTML; JSON login is `POST` with
+`content-type: application/json`.
+
 MFA path: login returns `challenge_id`; then
 
 ```bash
@@ -185,10 +208,11 @@ Wrong password / unknown user: `{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
   `outcome_from_action` only.
 - Call `/risk/evaluate` only after a successful password verify.
 - Do not put identity in `decision-service`.
-- Do not implement OIDC/SAML/SCIM. Do not add hosted HTML yet (IdP-5).
+- Do not implement OIDC/SAML/SCIM. Do not add an admin console (IdP-6).
+- Hosted login stays on this origin ([ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
 - Do not add Redis/Postgres compose here — use `../rba-infra`.
 
 ## Status
 
-IdP-4 session + mock MFA. Next: **IdP-5** hosted login UI. Roadmap:
+IdP-5 hosted login UI. Next: **IdP-6** admin console. Roadmap:
 `../docs/plans/status.md`.
