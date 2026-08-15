@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # When true, use in-memory SQLite (unit tests / no Docker).
     use_memory_db: bool = False
 
+    pdp_base_url: str = "http://localhost:8000"
+    pdp_timeout_seconds: float = 2.0
+
     seed_user_id: str = "usr_demo"
     seed_email: str = "demo@example.com"
     seed_password: str = "demo-password"

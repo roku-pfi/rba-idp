@@ -1,27 +1,40 @@
 # rba-idp
 
 Thesis-scale **IdP** (Authentik/Auth0-shaped shell). The thesis core is RBA
-(`rba-decision-service`); this service is the PEP that will call it at **IdP-3**.
+(`rba-decision-service`); this service is the PEP that calls it.
 
-**IdP-2 (this slice):** local users + one seeded application + `POST /login`
-password verify. No PDP call, no session, no MFA, no UI, no OIDC.
+**IdP-3 (this slice):** local users + seeded application + `POST /login`
+password verify, then `POST /risk/evaluate`. Maps PDP action → login outcome
+and returns reasons. No session, no MFA challenge, no UI, no OIDC.
 
-## Request path (IdP-2)
+## Request path (IdP-3)
 
 ```
 client → POST /login
            → lookup application (rba_idp)
            → verify password (bcrypt)
-           → AUTHENTICATED | INVALID_CREDENTIALS
+           → POST /risk/evaluate (rba-decision-service)
+           → map action → outcome + reasons
 ```
 
-Contracts: `rba-contracts` v0.2.0 (`LoginRequest` / `LoginResponse`). Optional
-risk/session fields stay unset until IdP-3/4.
+| PDP action | Login outcome |
+|---|---|
+| `ALLOW` | `AUTHENTICATED` |
+| `REQUIRE_MFA` | `MFA_REQUIRED` |
+| `REAUTHENTICATE` | `REAUTH_REQUIRED` |
+| `BLOCK` | `BLOCKED` |
+
+Wrong password / unknown user → `INVALID_CREDENTIALS` (HTTP 200, **no** PDP
+call). Unknown `application_id` → HTTP 400. PDP down / invalid response →
+HTTP 503 (fail closed; not a fake `BLOCK`).
+
+Contracts: `rba-contracts` v0.2.0 (`LoginRequest` / `LoginResponse`,
+`outcome_from_action`). `session` / `challenge_id` stay unset until IdP-4.
 
 ## Setup
 
 ```bash
-# Shared Postgres lives in rba-infra (not this repo):
+# Shared Postgres (and Redis for the PDP) live in rba-infra:
 cd ../rba-infra && docker compose up -d && cd -
 
 # from this repo
@@ -31,7 +44,11 @@ pip install -e ../rba-contracts -e ".[dev]"
 
 pytest -q
 
+# PDP (separate terminal, from rba-decision-service):
+# uvicorn rba_decision_service.main:app --reload --port 8000
+
 DATABASE_URL=postgresql+psycopg://rba:rba@localhost:5432/rba_idp \
+PDP_BASE_URL=http://localhost:8000 \
 uvicorn rba_idp.main:app --reload --port 8001
 ```
 
@@ -50,7 +67,7 @@ docker compose -f ../rba-infra/docker-compose.yml exec postgres \
 | User | `demo@example.com` / `demo-password` (`usr_demo`) |
 
 Matches `rba-contracts` IdP login examples. Password is hashed with bcrypt at
-seed time; it is never stored or echoed.
+seed time; it is never stored, echoed, or sent to the PDP.
 
 ## Example
 
@@ -68,9 +85,9 @@ curl -s localhost:8001/login -H 'content-type: application/json' -d '{
 }'
 ```
 
-Success: `{"outcome":"AUTHENTICATED","user_id":"usr_demo"}`.
-Wrong password / unknown user: `{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
-Unknown `application_id`: HTTP 400.
+Success includes `outcome`, `user_id`, `event_id`, `action`, `risk_score`,
+`risk_level`, and `reasons`. Wrong password / unknown user:
+`{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
 
 ## Env
 
@@ -78,8 +95,10 @@ Unknown `application_id`: HTTP 400.
 |---|---|---|
 | `DATABASE_URL` | `postgresql+psycopg://rba:rba@localhost:5432/rba_idp` | DB created by `rba-infra` init |
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
+| `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |
+| `PDP_TIMEOUT_SECONDS` | `2.0` | fail closed on timeout |
 
 ## Status
 
-IdP-2 identity store. Next: IdP-3 (call `/risk/evaluate`). Roadmap:
+IdP-3 PDP enforce. Next: IdP-4 (session + mock MFA). Roadmap:
 `../docs/plans/status.md`.

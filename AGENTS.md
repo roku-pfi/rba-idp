@@ -14,8 +14,9 @@ status / decisions live in the **`docs`** repo (`../docs`):
 - Decisions → `../docs/decisions/` (ADR-0012–0015)
 - Narrative → `../docs/devlog.md`
 
-**This slice is IdP-2:** users + seeded application + password verify. Do **not**
-call the PDP, issue sessions, add MFA, UI, admin, or OIDC until those stages.
+**This slice is IdP-3:** password verify then `POST /risk/evaluate`; map action
+→ outcome + reasons. Do **not** issue sessions, add MFA challenges, UI, admin,
+or OIDC until those stages.
 
 ## Layout
 
@@ -24,20 +25,26 @@ src/rba_idp/
   main.py                 # FastAPI app + POST /login
   config.py               # pydantic-settings
   passwords.py            # bcrypt
+  pdp.py                  # HttpPdpClient → /risk/evaluate
   seed.py                 # demo user + demo-banking-app
   db/                     # applications + users (SQLAlchemy)
-  services/login.py       # credential verify
+  services/login.py       # credential verify + PDP enforce
 tests/test_login.py
+tests/test_pdp.py
 ```
 
 ## Guardrails
 
-- Import login models from `rba-contracts` (`LoginRequest` / `LoginResponse`).
-- Do **not** call `/risk/evaluate` (IdP-3). Do **not** put identity in
-  `decision-service`.
+- Import login / evaluate models from `rba-contracts`. Map actions with
+  `outcome_from_action` — do not re-implement the mapping.
+- Call `/risk/evaluate` only after a successful password verify. Never send
+  the password (or email) to the PDP.
+- Do **not** put identity in `decision-service`.
 - Do **not** implement OIDC/SAML/SCIM (ADR-0014).
+- Do **not** add session cookies or MFA OTP yet (IdP-4).
 - Passwords: bcrypt only; never log or return the password.
 - Do **not** add Redis/Postgres compose here — use `../rba-infra`.
+- PDP unavailable → HTTP 503 (fail closed). Do not invent a `BLOCK`.
 - Only commit when explicitly asked; Conventional Commits; never commit secrets.
 
 ## Setup

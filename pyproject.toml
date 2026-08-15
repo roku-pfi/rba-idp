@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rba-idp"
 version = "0.1.0"
-description = "Thesis-scale IdP (PEP): local users, registered apps, password verify. PDP enforce is IdP-3."
+description = "Thesis-scale IdP (PEP): local users, registered apps, password verify, PDP enforce."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -18,6 +18,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.1",
     "bcrypt>=4.0",
+    "httpx>=0.27",
     "rba-contracts>=0.2.0",
 ]
 
