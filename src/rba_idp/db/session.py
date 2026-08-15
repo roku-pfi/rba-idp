@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -27,6 +27,22 @@ def make_engine(url: str, *, echo: bool = False, memory: bool = False) -> Engine
 
 def create_tables(engine: Engine) -> None:
     Base.metadata.create_all(engine)
+    _ensure_is_admin_column(engine)
+
+
+def _ensure_is_admin_column(engine: Engine) -> None:
+    """Additive IdP-6 column; create_all does not ALTER existing Postgres tables."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns("users")}
+    if "is_admin" in cols:
+        return
+    default = "FALSE" if engine.dialect.name == "postgresql" else "0"
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT {default}")
+        )
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:

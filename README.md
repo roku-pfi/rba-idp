@@ -4,16 +4,16 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**IdP-5 (this slice):** hosted login page on the IdP origin (`GET /` and
-`GET /login`). Apps send users here. The page calls the JSON API; PDP reasons
-are shown on MFA / reauth / block / success. No admin console (**IdP-6**). No
-OIDC/SAML/SCIM ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
-[ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
+**IdP-6 (this slice):** admin console at `GET /admin` (users, applications,
+decision browser with reasons, policy). Hosted login stays at `GET /login`.
+No groups (**IdP-7**). No OIDC/SAML/SCIM
+([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
+[ADR-0017](../docs/decisions/0017-admin-console-colocated-on-idp.md)).
 
-Package version: **0.1.0**. Pins `rba-contracts` ≥ 0.2.0.
+Package version: **0.1.0**. Pins `rba-contracts` ≥ 0.3.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
-> ADRs: 0012–0016. AI: [`AGENTS.md`](AGENTS.md).
+> ADRs: 0012–0017. AI: [`AGENTS.md`](AGENTS.md).
 
 ## Request path
 
@@ -21,6 +21,11 @@ Package version: **0.1.0**. Pins `rba-contracts` ≥ 0.2.0.
 browser  GET /login?application_id=demo-banking-app
            → HTML (email / password / MFA / blocked / signed-in)
            → POST /login  (JSON; ip_address from the page boot payload)
+browser  GET /admin
+           → React SPA (after hosted login as admin)
+           → /admin/api/users|applications   (IdP DB)
+           → /admin/api/decisions            (proxy → decision-service GET /decisions)
+           → /admin/api/policy               (proxy → decision-service :8000)
 client → POST /login
            → lookup application (rba_idp)
            → verify password (bcrypt)
@@ -40,7 +45,8 @@ client → POST /login
 Wrong password / unknown user → `INVALID_CREDENTIALS` (HTTP 200, **no** PDP
 call). Unknown `application_id` → HTTP 400 (JSON) or an “unknown application”
 panel (HTML). PDP down / invalid response → HTTP 503 (fail closed; not a fake
-`BLOCK`).
+`BLOCK`). Admin APIs: HTTP 401 without a session, HTTP 403 if the user is not
+`is_admin`. Audit/PDP down on those proxies → HTTP 503.
 
 Mock OTP is always `000000` (thesis stand-in, not TOTP/WebAuthn). Completing
 MFA does **not** re-score. Wrong code → `INVALID_CREDENTIALS` (challenge stays
@@ -56,56 +62,58 @@ The hosted page keeps the token in `sessionStorage` and sends it as Bearer.
 
 ```
 src/rba_idp/
-├── main.py              # FastAPI factory + JSON routes + hosted HTML
+├── main.py              # FastAPI factory + JSON + hosted HTML + admin BFF
 ├── config.py            # pydantic-settings
 ├── passwords.py         # bcrypt hash / verify
 ├── pdp.py               # HttpPdpClient → /risk/evaluate
+├── clients.py           # policy (PDP) + audit HTTP
 ├── tokens.py            # opaque session token + mock OTP compare
-├── seed.py              # demo user + demo-banking-app (idempotent)
+├── seed.py              # demo user, admin user, two applications
 ├── db/models.py         # applications, users, sessions, mfa_challenges
 ├── db/session.py
 ├── services/login.py    # verify + PDP + session/challenge
-└── web/                 # IdP-5 hosted login
-    ├── context.py       # application lookup + client IP
-    ├── templates/login.html
-    └── static/login.{css,js}
+├── services/admin.py    # users/apps CRUD; proxy decisions/policy
+├── web/                 # hosted login + built admin SPA
+│   ├── templates/login.html
+│   ├── static/login.{css,js}  admin.{css,js}
+│   └── admin/           # Vite build output
+admin-ui/                # React + Vite + TypeScript source
 tests/
-├── conftest.py          # in-memory sqlite + stub PDP
-├── helpers.py
-├── test_login.py
-├── test_pdp.py
-├── test_session.py
-└── test_hosted_login.py
 ```
 
 ## HTTP API
 
-Contracts: `../rba-contracts/openapi/idp.yaml`. Default port **8001**.
+Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
+`idp-admin.yaml` (admin). Default port **8001**.
 
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/` or `/login` | Hosted UI. Query `application_id` (default: seeded app) |
-| `GET` | `/static/…` | Login CSS / JS |
+| `GET` | `/admin` | Admin SPA. Sign in via `/login?application_id=idp-admin-console&next=/admin` |
+| `GET` | `/static/…` | Login / admin CSS / JS |
 | `GET` | `/healthz` | `{ "status": "ok" }` |
 | `POST` | `/login` | `LoginRequest` → `LoginResponse` |
 | `POST` | `/mfa/verify` | `MfaVerifyRequest` → `LoginResponse` |
-| `GET` | `/session` | Bearer required → `SessionResponse` |
+| `GET` | `/session` | Bearer required → `SessionResponse` (`is_admin` on user) |
 | `POST` | `/logout` | Bearer; 204 even if already gone |
+| `GET/POST` | `/admin/api/users` | List / create (admin session) |
+| `PATCH` | `/admin/api/users/{user_id}` | Enable / role / password |
+| `GET/POST` | `/admin/api/applications` | List / register |
+| `PATCH` | `/admin/api/applications/{id}` | Name / enabled |
+| `GET` | `/admin/api/decisions` | Decision browser (reasons) |
+| `GET/PUT` | `/admin/api/policy` | Active PDP `PolicyConfig` |
 
 HTTP 400: unknown/expired challenge, unknown application.
 HTTP 401: missing/expired/unknown session.
-HTTP 503: PDP unavailable.
-
-The hosted page injects `ip_address` from `X-Forwarded-For` (first hop) or the
-peer address, and sends `user_agent` / device hints from the browser. JSON
-clients still supply those fields themselves.
+HTTP 403: session is not an admin.
+HTTP 503: PDP or audit store unavailable.
 
 ### Postgres tables (DB `rba_idp`)
 
 Created on startup:
 
 - `applications` — registered clients (`application_id` PK)
-- `users` — `user_id`, unique email, bcrypt `password_hash`
+- `users` — `user_id`, unique email, bcrypt `password_hash`, `is_admin`
 - `sessions` — PK `token_hash`; TTL `SESSION_TTL_SECONDS` (8h)
 - `mfa_challenges` — pending step-up; TTL 5m; `consumed_at` on success
 
@@ -120,15 +128,22 @@ pip install -e ../rba-contracts -e ".[dev]"
 
 pytest -q
 
-# PDP must already be up on :8000 (see rba-decision-service README)
+# Rebuild the admin SPA after UI edits:
+#   cd admin-ui && npm install && npm run build
+
+# PDP must already be up on :8000. Decision browser also needs
+# rba-audit-api on :8002 (and the async plane to populate it).
 
 DATABASE_URL=postgresql+psycopg://rba:rba@localhost:5432/rba_idp \
 PDP_BASE_URL=http://localhost:8000 \
+AUDIT_BASE_URL=http://localhost:8002 \
 uvicorn rba_idp.main:app --reload --port 8001
 ```
 
 Open [http://localhost:8001/login](http://localhost:8001/login) (or pass
 `?application_id=demo-banking-app`).
+Admin: [http://localhost:8001/admin](http://localhost:8001/admin)
+(redirects to hosted login for `idp-admin-console`).
 
 If Postgres was initialized **before** `rba_idp` existed:
 
@@ -137,8 +152,8 @@ docker compose -f ../rba-infra/docker-compose.yml exec postgres \
   psql -U rba -d postgres -c "CREATE DATABASE rba_idp;"
 ```
 
-Tests use in-memory SQLite and a stub `PdpClient` — they do not need Docker
-or the live PDP.
+Tests use in-memory SQLite and stub PDP / policy / audit clients — they do
+not need Docker or the live PDP.
 
 ## Seeded identity
 
@@ -147,45 +162,12 @@ Written on every boot if missing (`seed.py`):
 | | |
 |---|---|
 | Application | `demo-banking-app` (Demo banking app) |
-| User | `demo@example.com` / `demo-password` (`usr_demo`) |
+| Application | `idp-admin-console` (IdP admin console) |
+| User | `demo@example.com` / `demo-password` (`usr_demo`, not admin) |
+| User | `admin@example.com` / `admin-password` (`usr_admin`, `is_admin`) |
 | Mock OTP | `000000` |
 
 Matches `rba-contracts` IdP login examples.
-
-## Example
-
-```bash
-# ALLOW (typical low-risk) → session token
-TOKEN=$(curl -s localhost:8001/login -H 'content-type: application/json' -d '{
-  "email": "demo@example.com",
-  "password": "demo-password",
-  "application_id": "demo-banking-app",
-  "ip_address": "203.0.113.10",
-  "asn": "13335",
-  "country": "AR",
-  "device_type": "mobile",
-  "os": "Android",
-  "browser": "Chrome"
-}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["token"])')
-
-curl -s localhost:8001/session -H "Authorization: Bearer $TOKEN"
-curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8001/logout \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-`curl` `GET /login` returns HTML; JSON login is `POST` with
-`content-type: application/json`.
-
-MFA path: login returns `challenge_id`; then
-
-```bash
-curl -s localhost:8001/mfa/verify -H 'content-type: application/json' -d '{
-  "challenge_id": "<from login>",
-  "code": "000000"
-}'
-```
-
-Wrong password / unknown user: `{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
 
 ## Env
 
@@ -195,24 +177,29 @@ Wrong password / unknown user: `{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
 | `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |
 | `PDP_TIMEOUT_SECONDS` | `2.0` | fail closed on timeout |
+| `AUDIT_BASE_URL` | `http://localhost:8000` | PDP `GET /decisions` (live browser). Set to `:8002` only for the async audit copy |
 | `SESSION_TTL_SECONDS` | `28800` | 8h bearer session |
 | `CHALLENGE_TTL_SECONDS` | `300` | 5m MFA/reauth challenge |
 | `MOCK_OTP_CODE` | `000000` | thesis mock, not a real factor |
 | `SEED_USER_ID` / `SEED_EMAIL` / `SEED_PASSWORD` | `usr_demo` / `demo@example.com` / `demo-password` | |
+| `SEED_ADMIN_*` | `usr_admin` / `admin@example.com` / `admin-password` | |
 | `SEED_APPLICATION_ID` / `SEED_APPLICATION_NAME` | `demo-banking-app` / `Demo banking app` | |
+| `SEED_ADMIN_APPLICATION_ID` | `idp-admin-console` | |
 | `HOST` / `PORT` | `0.0.0.0` / `8001` | |
 
 ## Guardrails
 
-- Import login/evaluate models from `rba-contracts`. Map actions with
+- Import login/evaluate/admin models from `rba-contracts`. Map actions with
   `outcome_from_action` only.
 - Call `/risk/evaluate` only after a successful password verify.
 - Do not put identity in `decision-service`.
-- Do not implement OIDC/SAML/SCIM. Do not add an admin console (IdP-6).
+- Do not implement OIDC/SAML/SCIM. Do not add groups (IdP-7).
 - Hosted login stays on this origin ([ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
+- Admin is colocated here ([ADR-0017](../docs/decisions/0017-admin-console-colocated-on-idp.md));
+  do not query `rba_audit` / `rba_decision` tables from this process.
 - Do not add Redis/Postgres compose here — use `../rba-infra`.
 
 ## Status
 
-IdP-5 hosted login UI. Next: **IdP-6** admin console. Roadmap:
+IdP-6 admin console. Next: **IdP-7** stretch (groups). Roadmap:
 `../docs/plans/status.md`.

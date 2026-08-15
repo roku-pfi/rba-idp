@@ -130,6 +130,7 @@ class LoginService:
                 user_id=user.user_id,
                 email=user.email,
                 created_at=_as_utc(user.created_at),
+                is_admin=bool(user.is_admin),
             ),
             expires_at=_as_utc(row.expires_at),
         )
@@ -230,3 +231,9 @@ class LoginService:
             if user is None or not user.enabled:
                 raise HTTPException(status_code=401, detail="missing or expired session")
             return row, user
+
+    def require_admin(self, authorization: str | None) -> User:
+        _row, user = self._load_session(authorization)
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="admin required")
+        return user

@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     seed_application_id: str = "demo-banking-app"
     seed_application_name: str = "Demo banking app"
 
+    seed_admin_user_id: str = "usr_admin"
+    seed_admin_email: str = "admin@example.com"
+    seed_admin_password: str = "admin-password"
+    seed_admin_application_id: str = "idp-admin-console"
+    seed_admin_application_name: str = "IdP admin console"
+
+    audit_base_url: str = "http://localhost:8000"
+    audit_timeout_seconds: float = 2.0
+
 
 @lru_cache
 def get_settings() -> Settings:

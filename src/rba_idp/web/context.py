@@ -41,4 +41,11 @@ def hosted_boot(
         "application_name": name,
         "unknown_application": unknown,
         "ip_address": client_ip(request),
+        "next": _safe_next(request.query_params.get("next")),
     }
+
+
+def _safe_next(value: str | None) -> str | None:
+    if value and value.startswith("/admin"):
+        return value
+    return None

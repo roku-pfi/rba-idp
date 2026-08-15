@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rba-idp"
 version = "0.1.0"
-description = "Thesis-scale IdP (PEP): hosted login, PDP enforce, session, mock MFA."
+description = "Thesis-scale IdP (PEP): hosted login, PDP enforce, session, mock MFA, admin console."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -20,7 +20,7 @@ dependencies = [
     "bcrypt>=4.0",
     "httpx>=0.27",
     "jinja2>=3.1",
-    "rba-contracts>=0.2.0",
+    "rba-contracts>=0.3.0",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +33,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-rba_idp = ["web/templates/*.html", "web/static/*"]
+rba_idp = ["web/templates/*.html", "web/static/*", "web/admin/*", "web/admin/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

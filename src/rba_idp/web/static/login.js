@@ -145,6 +145,10 @@
     }
     if (outcome === "AUTHENTICATED" && body.session?.token) {
       storeSession(body.session.token);
+      if (boot.next && boot.next.startsWith("/admin")) {
+        window.location.assign(boot.next);
+        return;
+      }
       showSignedIn(body);
       return;
     }
