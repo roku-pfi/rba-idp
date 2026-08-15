@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     pdp_base_url: str = "http://localhost:8000"
     pdp_timeout_seconds: float = 2.0
 
+    session_ttl_seconds: int = 8 * 3600
+    challenge_ttl_seconds: int = 5 * 60
+    mock_otp_code: str = "000000"
+
     seed_user_id: str = "usr_demo"
     seed_email: str = "demo@example.com"
     seed_password: str = "demo-password"

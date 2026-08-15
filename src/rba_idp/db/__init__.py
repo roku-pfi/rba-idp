@@ -1,4 +1,4 @@
-from rba_idp.db.models import Application, Base, User
+from rba_idp.db.models import Application, Base, IdpSession, MfaChallenge, User
 from rba_idp.db.session import (
     create_tables,
     make_engine,
@@ -9,6 +9,8 @@ from rba_idp.db.session import (
 __all__ = [
     "Application",
     "Base",
+    "IdpSession",
+    "MfaChallenge",
     "User",
     "create_tables",
     "make_engine",

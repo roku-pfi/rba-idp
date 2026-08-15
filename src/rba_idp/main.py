@@ -1,12 +1,14 @@
-"""FastAPI application factory. IdP-3: POST /login verifies then asks the PDP."""
+"""FastAPI application factory. IdP-4: PDP enforce, session, mock MFA."""
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
-from rba_contracts import LoginRequest, LoginResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import Response
+from rba_contracts import LoginRequest, LoginResponse, MfaVerifyRequest, SessionResponse
 
 from rba_idp.config import Settings, get_settings
 from rba_idp.db.session import create_tables, make_engine, make_session_factory
@@ -38,9 +40,10 @@ def create_app(
         )
         app.state.settings = settings
         app.state.pdp_client = pdp
-        app.state.login_service = LoginService(session_factory, pdp)
+        app.state.session_factory = session_factory
+        app.state.login_service = LoginService(session_factory, pdp, settings)
         logger.info(
-            "rba-idp ready (IdP-3: PDP enforce). seed app=%s user=%s pdp=%s",
+            "rba-idp ready (IdP-4: session + mock MFA). seed app=%s user=%s pdp=%s",
             settings.seed_application_id,
             settings.seed_email,
             settings.pdp_base_url,
@@ -67,16 +70,44 @@ def create_app(
         response_model_exclude_defaults=True,
     )
     def login(body: LoginRequest, request: Request) -> LoginResponse:
-        service: LoginService = request.app.state.login_service
-        try:
-            return service.login(body)
-        except HTTPException:
-            raise
-        except Exception as exc:  # pragma: no cover
-            logger.exception("unhandled login error")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return _run(request, lambda svc: svc.login(body))
+
+    @app.post(
+        "/mfa/verify",
+        response_model=LoginResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_defaults=True,
+    )
+    def verify_mfa(body: MfaVerifyRequest, request: Request) -> LoginResponse:
+        return _run(request, lambda svc: svc.verify_mfa(body))
+
+    @app.get("/session", response_model=SessionResponse)
+    def get_session(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> SessionResponse:
+        return _run(request, lambda svc: svc.get_session(authorization))
+
+    @app.post("/logout", status_code=204)
+    def logout(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _run(request, lambda svc: svc.logout(authorization))
+        return Response(status_code=204)
 
     return app
+
+
+def _run(request: Request, op):
+    service: LoginService = request.app.state.login_service
+    try:
+        return op(service)
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        logger.exception("unhandled IdP error")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 app = create_app()

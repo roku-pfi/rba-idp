@@ -3,33 +3,39 @@
 Thesis-scale **IdP** (Authentik/Auth0-shaped shell). The thesis core is RBA
 (`rba-decision-service`); this service is the PEP that calls it.
 
-**IdP-3 (this slice):** local users + seeded application + `POST /login`
-password verify, then `POST /risk/evaluate`. Maps PDP action → login outcome
-and returns reasons. No session, no MFA challenge, no UI, no OIDC.
+**IdP-4 (this slice):** after password verify + PDP, issue a session on `ALLOW`
+or a mock-OTP challenge on MFA/REAUTH. `BLOCK` stays rejected. No hosted UI.
 
-## Request path (IdP-3)
+## Request path (IdP-4)
 
 ```
 client → POST /login
            → lookup application (rba_idp)
            → verify password (bcrypt)
            → POST /risk/evaluate (rba-decision-service)
-           → map action → outcome + reasons
+           → ALLOW  → session token
+           → MFA / REAUTH → challenge_id (POST /mfa/verify with 000000)
+           → BLOCK → rejected (no session)
 ```
 
-| PDP action | Login outcome |
-|---|---|
-| `ALLOW` | `AUTHENTICATED` |
-| `REQUIRE_MFA` | `MFA_REQUIRED` |
-| `REAUTHENTICATE` | `REAUTH_REQUIRED` |
-| `BLOCK` | `BLOCKED` |
+| PDP action | Login outcome | What the IdP issues |
+|---|---|---|
+| `ALLOW` | `AUTHENTICATED` | `session.token` (Bearer) |
+| `REQUIRE_MFA` | `MFA_REQUIRED` | `challenge_id` |
+| `REAUTHENTICATE` | `REAUTH_REQUIRED` | `challenge_id` |
+| `BLOCK` | `BLOCKED` | nothing |
 
 Wrong password / unknown user → `INVALID_CREDENTIALS` (HTTP 200, **no** PDP
 call). Unknown `application_id` → HTTP 400. PDP down / invalid response →
 HTTP 503 (fail closed; not a fake `BLOCK`).
 
-Contracts: `rba-contracts` v0.2.0 (`LoginRequest` / `LoginResponse`,
-`outcome_from_action`). `session` / `challenge_id` stay unset until IdP-4.
+Mock OTP is always `000000` (thesis stand-in, not TOTP/WebAuthn). Wrong code →
+`INVALID_CREDENTIALS` (challenge stays open until expiry). Success → session,
+same `LoginResponse` shape. `GET /session` with `Authorization: Bearer …`.
+`POST /logout` returns 204 (idempotent).
+
+Contracts: `rba-contracts` v0.2.0. Session tokens are opaque and stored
+hashed. No HTML UI (IdP-5).
 
 ## Setup
 
@@ -65,6 +71,7 @@ docker compose -f ../rba-infra/docker-compose.yml exec postgres \
 |---|---|
 | Application | `demo-banking-app` (Demo banking app) |
 | User | `demo@example.com` / `demo-password` (`usr_demo`) |
+| Mock OTP | `000000` |
 
 Matches `rba-contracts` IdP login examples. Password is hashed with bcrypt at
 seed time; it is never stored, echoed, or sent to the PDP.
@@ -72,7 +79,8 @@ seed time; it is never stored, echoed, or sent to the PDP.
 ## Example
 
 ```bash
-curl -s localhost:8001/login -H 'content-type: application/json' -d '{
+# ALLOW (typical low-risk) → session token
+TOKEN=$(curl -s localhost:8001/login -H 'content-type: application/json' -d '{
   "email": "demo@example.com",
   "password": "demo-password",
   "application_id": "demo-banking-app",
@@ -82,12 +90,23 @@ curl -s localhost:8001/login -H 'content-type: application/json' -d '{
   "device_type": "mobile",
   "os": "Android",
   "browser": "Chrome"
+}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["token"])')
+
+curl -s localhost:8001/session -H "Authorization: Bearer $TOKEN"
+curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8001/logout \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+MFA path: login returns `challenge_id`; then
+
+```bash
+curl -s localhost:8001/mfa/verify -H 'content-type: application/json' -d '{
+  "challenge_id": "<from login>",
+  "code": "000000"
 }'
 ```
 
-Success includes `outcome`, `user_id`, `event_id`, `action`, `risk_score`,
-`risk_level`, and `reasons`. Wrong password / unknown user:
-`{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
+Wrong password / unknown user: `{"outcome":"INVALID_CREDENTIALS"}` (HTTP 200).
 
 ## Env
 
@@ -97,8 +116,11 @@ Success includes `outcome`, `user_id`, `event_id`, `action`, `risk_score`,
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
 | `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |
 | `PDP_TIMEOUT_SECONDS` | `2.0` | fail closed on timeout |
+| `SESSION_TTL_SECONDS` | `28800` | 8h bearer session |
+| `CHALLENGE_TTL_SECONDS` | `300` | 5m MFA/reauth challenge |
+| `MOCK_OTP_CODE` | `000000` | thesis mock, not a real factor |
 
 ## Status
 
-IdP-3 PDP enforce. Next: IdP-4 (session + mock MFA). Roadmap:
+IdP-4 session + mock MFA. Next: IdP-5 (hosted login UI). Roadmap:
 `../docs/plans/status.md`.

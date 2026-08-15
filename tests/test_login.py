@@ -1,104 +1,23 @@
-"""IdP-3: password verify then PDP enforce (no session / MFA challenge)."""
+"""IdP-4: password verify then PDP enforce; session / challenge per action."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from rba_contracts import (
-    Action,
-    LoginOutcome,
-    Reason,
-    RiskEvaluateRequest,
-    RiskEvaluateResponse,
-    RiskLevel,
-)
+from rba_contracts import Action, LoginOutcome, RiskLevel
 
-from rba_idp.config import Settings
-from rba_idp.main import create_app
-from rba_idp.pdp import PdpUnavailable
-
-LOGIN = {
-    "email": "demo@example.com",
-    "password": "demo-password",
-    "application_id": "demo-banking-app",
-    "ip_address": "203.0.113.10",
-    "asn": "13335",
-    "country": "AR",
-    "device_type": "mobile",
-    "os": "Android",
-    "browser": "Chrome",
-}
-
-REASON = Reason(
-    code="signal_novel",
-    signal="device_type",
-    contribution=1.8,
-    detail="device_type not previously seen for this user",
-)
-
-
-class StubPdp:
-    def __init__(
-        self,
-        *,
-        action: Action = Action.ALLOW,
-        risk_score: float = 0.12,
-        risk_level: RiskLevel = RiskLevel.LOW,
-        reasons: list[Reason] | None = None,
-    ) -> None:
-        self.action = action
-        self.risk_score = risk_score
-        self.risk_level = risk_level
-        self.reasons = reasons if reasons is not None else [REASON]
-        self.calls: list[RiskEvaluateRequest] = []
-
-    def evaluate(self, request: RiskEvaluateRequest) -> RiskEvaluateResponse:
-        self.calls.append(request)
-        return RiskEvaluateResponse(
-            event_id=request.event_id,
-            risk_score=self.risk_score,
-            risk_level=self.risk_level,
-            action=self.action,
-            reasons=self.reasons,
-            model_version="freeman-0.1.0",
-            policy_version="1.0.0",
-            feature_schema_version="1.0.0",
-            fallback=False,
-            scored_at=datetime.now(timezone.utc),
-        )
-
-
-class FailingPdp:
-    def evaluate(self, request: RiskEvaluateRequest) -> RiskEvaluateResponse:
-        raise PdpUnavailable("connection refused")
-
-
-@pytest.fixture
-def pdp() -> StubPdp:
-    return StubPdp()
-
-
-@pytest.fixture
-def client(pdp: StubPdp) -> TestClient:
-    settings = Settings(use_memory_db=True)
-    app = create_app(settings, pdp_client=pdp)
-    with TestClient(app) as test_client:
-        yield test_client
-
-
-def _client_for(pdp_client) -> TestClient:
-    settings = Settings(use_memory_db=True)
-    return TestClient(create_app(settings, pdp_client=pdp_client))
+from rba_idp.db.models import IdpSession
+from rba_idp.tokens import hash_session_token
+from tests.helpers import LOGIN, REASON, StubPdp, client_for
 
 
 def test_healthz(client: TestClient) -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
-def test_valid_credentials_return_pdp_decision(client: TestClient, pdp: StubPdp) -> None:
+def test_allow_issues_session_and_calls_pdp(client: TestClient, pdp: StubPdp) -> None:
     resp = client.post("/login", json=LOGIN)
     assert resp.status_code == 200
     body = resp.json()
@@ -109,7 +28,8 @@ def test_valid_credentials_return_pdp_decision(client: TestClient, pdp: StubPdp)
     assert body["risk_level"] == RiskLevel.LOW.value
     assert body["reasons"] == [REASON.model_dump(mode="json")]
     UUID(body["event_id"])
-    assert "session" not in body
+    assert body["session"]["token"]
+    assert body["session"]["expires_at"]
     assert "challenge_id" not in body
     assert len(pdp.calls) == 1
     call = pdp.calls[0]
@@ -123,6 +43,16 @@ def test_valid_credentials_return_pdp_decision(client: TestClient, pdp: StubPdp)
     assert call.browser == "Chrome"
     assert call.login_successful is True
     assert call.timestamp.tzinfo is not None
+
+
+def test_session_token_is_stored_hashed(client: TestClient) -> None:
+    body = client.post("/login", json=LOGIN).json()
+    token = body["session"]["token"]
+    with client.app.state.session_factory() as session:
+        row = session.get(IdpSession, hash_session_token(token))
+        assert row is not None
+        assert row.token_hash != token
+        assert row.user_id == "usr_demo"
 
 
 def test_email_is_case_insensitive(client: TestClient, pdp: StubPdp) -> None:
@@ -149,7 +79,7 @@ def test_pdp_action_maps_to_login_outcome(
     score: float,
 ) -> None:
     pdp = StubPdp(action=action, risk_score=score, risk_level=level)
-    with _client_for(pdp) as client:
+    with client_for(pdp) as client:
         resp = client.post("/login", json=LOGIN)
     assert resp.status_code == 200
     body = resp.json()
@@ -158,8 +88,15 @@ def test_pdp_action_maps_to_login_outcome(
     assert body["risk_score"] == score
     assert body["risk_level"] == level.value
     assert body["user_id"] == "usr_demo"
-    assert "session" not in body
-    assert "challenge_id" not in body
+    if action == Action.ALLOW:
+        assert body["session"]["token"]
+        assert "challenge_id" not in body
+    elif action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE):
+        UUID(body["challenge_id"])
+        assert "session" not in body
+    else:
+        assert "session" not in body
+        assert "challenge_id" not in body
 
 
 def test_wrong_password_is_invalid_credentials_without_pdp(
@@ -193,7 +130,9 @@ def test_unknown_application_is_400_without_pdp(client: TestClient, pdp: StubPdp
 
 
 def test_pdp_unavailable_is_503() -> None:
-    with _client_for(FailingPdp()) as client:
+    from tests.helpers import FailingPdp
+
+    with client_for(FailingPdp()) as client:
         resp = client.post("/login", json=LOGIN)
     assert resp.status_code == 503
     assert resp.json()["detail"] == "PDP unavailable"
@@ -204,12 +143,3 @@ def test_password_never_reaches_the_pdp(client: TestClient, pdp: StubPdp) -> Non
     dumped = pdp.calls[0].model_dump()
     assert "password" not in dumped
     assert "email" not in dumped
-
-
-def test_mfa_and_session_are_not_implemented_yet(client: TestClient) -> None:
-    assert client.post(
-        "/mfa/verify",
-        json={"challenge_id": "7c2e1b3d-4a6f-9c8e-2d1b-3a6f9c8e4f9a", "code": "000000"},
-    ).status_code == 404
-    assert client.get("/session").status_code == 404
-    assert client.post("/logout").status_code == 404

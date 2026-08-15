@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rba-idp"
 version = "0.1.0"
-description = "Thesis-scale IdP (PEP): local users, registered apps, password verify, PDP enforce."
+description = "Thesis-scale IdP (PEP): password verify, PDP enforce, session, mock MFA."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
