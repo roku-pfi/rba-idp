@@ -81,6 +81,7 @@ src/rba_idp/
 │   └── admin/           # Vite build output
 admin-ui/                # React + Vite + TypeScript source
 tests/
+Dockerfile               # build from polyrepo root (copies rba-contracts)
 ```
 
 ## HTTP API
@@ -162,6 +163,18 @@ docker compose -f ../rba-infra/docker-compose.yml exec postgres \
 Tests use in-memory SQLite and stub PDP / policy / audit clients — they do
 not need Docker or the live PDP.
 
+### Docker / k8s
+
+From the polyrepo root (`develop/`):
+
+```bash
+docker build -f rba-idp/Dockerfile -t rba-idp:dev .
+```
+
+Cluster install: `../rba-infra/scripts/k3d-up.sh`
+([ADR-0020](../docs/decisions/0020-local-k8s-k3d-helm.md)). Hosted login then
+at http://localhost:8080/login.
+
 ## Seeded identity
 
 Written on every boot if missing (`seed.py`):
@@ -212,5 +225,5 @@ Matches `rba-contracts` IdP login examples.
 
 ## Status
 
-IdP-7 groups / app-scoped permissions. Next: k8s/Helm/observability. Roadmap:
-`../docs/plans/status.md`.
+IdP-7 groups / app-scoped permissions. Local k8s via `../rba-infra` Helm
+(K8s-1). Next: observability (K8s-2). Roadmap: `../docs/plans/status.md`.

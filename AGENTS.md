@@ -11,7 +11,7 @@ status / decisions live in the **`docs`** repo (`../docs`):
 
 - **Current status → `../docs/plans/status.md`**
 - Phase rationale → `../docs/plans/development_plan.md` §8 Phase 7
-- Decisions → `../docs/decisions/` (ADR-0012–0019)
+- Decisions → `../docs/decisions/` (ADR-0012–0020)
 - Narrative → `../docs/devlog.md`
 
 **This slice is IdP-7:** groups with app-scoped `access` grants. Admin console
