@@ -226,4 +226,4 @@ Matches `rba-contracts` IdP login examples.
 ## Status
 
 IdP-7 groups / app-scoped permissions. Local k8s via `../rba-infra` Helm
-(K8s-1). Next: observability (K8s-2). Roadmap: `../docs/plans/status.md`.
+(K8s-1). Observability: `../rba-infra` Grafana `/grafana` (K8s-2). Roadmap: `../docs/plans/status.md`.
