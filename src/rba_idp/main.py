@@ -1,4 +1,4 @@
-"""FastAPI application factory. IdP-6: hosted login + admin console BFF."""
+"""FastAPI application factory. IdP-7: hosted login + admin console + groups."""
 
 from __future__ import annotations
 
@@ -13,16 +13,22 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from rba_contracts import (
     Action,
+    AddGroupMemberRequest,
     AdminUserPublic,
     ApplicationPublic,
     CreateApplicationRequest,
+    CreateGroupGrantRequest,
+    CreateGroupRequest,
     CreateUserRequest,
     DecisionListResponse,
     DecisionRecord,
+    GroupDetail,
+    GroupPublic,
     LoginRequest,
     LoginResponse,
     MfaVerifyRequest,
     PatchApplicationRequest,
+    PatchGroupRequest,
     PatchUserRequest,
     PolicyConfig,
     SessionResponse,
@@ -97,7 +103,7 @@ def create_app(
             session_factory, login_service, policy, audit
         )
         logger.info(
-            "rba-idp ready (IdP-6: admin). seed app=%s admin=%s pdp=%s audit=%s",
+            "rba-idp ready (IdP-7: groups). seed app=%s admin=%s pdp=%s audit=%s",
             settings.seed_application_id,
             settings.seed_admin_email,
             settings.pdp_base_url,
@@ -111,7 +117,7 @@ def create_app(
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
     templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -239,6 +245,93 @@ def create_app(
         authorization: Annotated[str | None, Header()] = None,
     ) -> ApplicationPublic:
         return _guard(request, authorization).patch_application(application_id, body)
+
+    @app.get("/admin/api/groups", response_model=list[GroupPublic])
+    def admin_list_groups(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> list[GroupPublic]:
+        return _guard(request, authorization).list_groups()
+
+    @app.post(
+        "/admin/api/groups",
+        response_model=GroupDetail,
+        status_code=201,
+    )
+    def admin_create_group(
+        body: CreateGroupRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).create_group(body)
+
+    @app.get("/admin/api/groups/{group_id}", response_model=GroupDetail)
+    def admin_get_group(
+        group_id: str,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).get_group(group_id)
+
+    @app.patch("/admin/api/groups/{group_id}", response_model=GroupDetail)
+    def admin_patch_group(
+        group_id: str,
+        body: PatchGroupRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).patch_group(group_id, body)
+
+    @app.delete("/admin/api/groups/{group_id}", status_code=204)
+    def admin_delete_group(
+        group_id: str,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _guard(request, authorization).delete_group(group_id)
+        return Response(status_code=204)
+
+    @app.post("/admin/api/groups/{group_id}/members", response_model=GroupDetail)
+    def admin_add_member(
+        group_id: str,
+        body: AddGroupMemberRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).add_member(group_id, body)
+
+    @app.delete(
+        "/admin/api/groups/{group_id}/members/{user_id}",
+        response_model=GroupDetail,
+    )
+    def admin_remove_member(
+        group_id: str,
+        user_id: str,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).remove_member(group_id, user_id)
+
+    @app.post("/admin/api/groups/{group_id}/grants", response_model=GroupDetail)
+    def admin_add_grant(
+        group_id: str,
+        body: CreateGroupGrantRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).add_grant(group_id, body)
+
+    @app.delete(
+        "/admin/api/groups/{group_id}/grants/{application_id}",
+        response_model=GroupDetail,
+    )
+    def admin_remove_grant(
+        group_id: str,
+        application_id: str,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> GroupDetail:
+        return _guard(request, authorization).remove_grant(group_id, application_id)
 
     @app.get("/admin/api/decisions", response_model=DecisionListResponse)
     def admin_list_decisions(

@@ -143,3 +143,41 @@ def test_password_never_reaches_the_pdp(client: TestClient, pdp: StubPdp) -> Non
     dumped = pdp.calls[0].model_dump()
     assert "password" not in dumped
     assert "email" not in dumped
+
+
+def test_no_group_grant_is_access_denied_without_pdp(
+    client: TestClient, pdp: StubPdp
+) -> None:
+    payload = {**LOGIN, "application_id": "idp-admin-console"}
+    resp = client.post("/login", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["outcome"] == LoginOutcome.ACCESS_DENIED.value
+    assert body["user_id"] == "usr_demo"
+    assert "session" not in body
+    assert pdp.calls == []
+
+
+def test_ungrouped_user_cannot_log_in(client: TestClient, pdp: StubPdp) -> None:
+    token = client.post(
+        "/login",
+        json={
+            **LOGIN,
+            "email": "admin@example.com",
+            "password": "admin-password",
+            "application_id": "idp-admin-console",
+        },
+    ).json()["session"]["token"]
+    created = client.post(
+        "/admin/api/users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"email": "orphan@example.com", "password": "orphan-password"},
+    )
+    assert created.status_code == 201
+    before = len(pdp.calls)
+    resp = client.post(
+        "/login",
+        json={**LOGIN, "email": "orphan@example.com", "password": "orphan-password"},
+    )
+    assert resp.json()["outcome"] == LoginOutcome.ACCESS_DENIED.value
+    assert len(pdp.calls) == before

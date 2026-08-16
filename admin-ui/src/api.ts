@@ -1,7 +1,7 @@
 const SESSION_KEY = "rba.idp.session";
 const ADMIN_APP = "idp-admin-console";
 
-export type Tab = "decisions" | "policy" | "users" | "apps";
+export type Tab = "decisions" | "policy" | "users" | "apps" | "groups";
 
 export type SessionUser = {
   user_id: string;
@@ -22,6 +22,19 @@ export type Application = {
   name: string;
   enabled: boolean;
   created_at: string;
+};
+
+export type Group = {
+  group_id: string;
+  name: string;
+  description: string;
+  member_count: number;
+  created_at: string;
+};
+
+export type GroupDetail = Group & {
+  members: { user_id: string; email: string }[];
+  grants: { application_id: string; permission: string }[];
 };
 
 export type Reason = {

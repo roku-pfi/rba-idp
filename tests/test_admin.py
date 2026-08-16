@@ -59,6 +59,7 @@ def test_admin_static_assets(client: TestClient) -> None:
     assert js.status_code == 200
     assert "Decisions" in js.text
     assert "/admin/api/policy" in js.text
+    assert "/admin/api/groups" in js.text
 
 
 def test_hosted_login_forwards_next(client: TestClient) -> None:

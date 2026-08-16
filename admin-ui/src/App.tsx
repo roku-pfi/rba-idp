@@ -7,6 +7,8 @@ import {
   type AdminUser,
   type Application,
   type Decision,
+  type Group,
+  type GroupDetail,
   type SessionUser,
   type Tab,
 } from "./api";
@@ -20,6 +22,8 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [apps, setApps] = useState<Application[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<GroupDetail | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [policyText, setPolicyText] = useState("");
 
@@ -48,6 +52,16 @@ export default function App() {
     const load = async () => {
       if (tab === "users") setUsers(await api<AdminUser[]>("/admin/api/users"));
       if (tab === "apps") setApps(await api<Application[]>("/admin/api/applications"));
+      if (tab === "groups") {
+        const [listed, directory, registered] = await Promise.all([
+          api<Group[]>("/admin/api/groups"),
+          api<AdminUser[]>("/admin/api/users"),
+          api<Application[]>("/admin/api/applications"),
+        ]);
+        setGroups(listed);
+        setUsers(directory);
+        setApps(registered);
+      }
       if (tab === "decisions") {
         const body = await api<{ items: Decision[] }>("/admin/api/decisions");
         setDecisions(body.items || []);
@@ -103,7 +117,7 @@ export default function App() {
         </div>
       </header>
       <nav className="tabs">
-        {(["decisions", "policy", "users", "apps"] as Tab[]).map((id) => (
+        {(["decisions", "policy", "users", "apps", "groups"] as Tab[]).map((id) => (
           <button
             key={id}
             type="button"
@@ -371,6 +385,225 @@ export default function App() {
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {tab === "groups" && (
+        <section className="panel">
+          <h1>Groups</h1>
+          <p className="lede">
+            App-scoped access. A user may sign in to an application only if one of their
+            groups grants <code>access</code>. Operator console still uses the admin flag.
+          </p>
+          {banner}
+          <form
+            className="form-row"
+            onSubmit={(event: FormEvent<HTMLFormElement>) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const data = new FormData(form);
+              api<GroupDetail>("/admin/api/groups", {
+                method: "POST",
+                body: JSON.stringify({
+                  name: data.get("name"),
+                  description: data.get("description") || "",
+                }),
+              })
+                .then((created) => {
+                  form.reset();
+                  setNotice("Group created.");
+                  setSelectedGroup(created);
+                  return api<Group[]>("/admin/api/groups");
+                })
+                .then(setGroups)
+                .catch((err: Error) => setError(err.message));
+            }}
+          >
+            <label>
+              Name
+              <input name="name" required />
+            </label>
+            <label>
+              Description
+              <input name="description" />
+            </label>
+            <button type="submit">Create group</button>
+          </form>
+          <div className="split">
+            <table>
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Members</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((row) => (
+                  <tr
+                    key={row.group_id}
+                    className={selectedGroup?.group_id === row.group_id ? "selected" : ""}
+                  >
+                    <td>
+                      <button
+                        className="linkish"
+                        type="button"
+                        onClick={() => {
+                          api<GroupDetail>(`/admin/api/groups/${row.group_id}`)
+                            .then(setSelectedGroup)
+                            .catch((err: Error) => setError(err.message));
+                        }}
+                      >
+                        {row.name}
+                      </button>
+                      <div className="muted mono">{row.group_id}</div>
+                    </td>
+                    <td>{row.member_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {selectedGroup ? (
+              <div>
+                <h2>{selectedGroup.name}</h2>
+                <p className="muted">{selectedGroup.description || "No description"}</p>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => {
+                    api(`/admin/api/groups/${selectedGroup.group_id}`, { method: "DELETE" })
+                      .then(() => {
+                        setSelectedGroup(null);
+                        setNotice("Group deleted.");
+                        return api<Group[]>("/admin/api/groups");
+                      })
+                      .then(setGroups)
+                      .catch((err: Error) => setError(err.message));
+                  }}
+                >
+                  Delete group
+                </button>
+                <h3>Members</h3>
+                <form
+                  className="form-row"
+                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                    event.preventDefault();
+                    const userId = String(new FormData(event.currentTarget).get("user_id"));
+                    api<GroupDetail>(`/admin/api/groups/${selectedGroup.group_id}/members`, {
+                      method: "POST",
+                      body: JSON.stringify({ user_id: userId }),
+                    })
+                      .then((detail) => {
+                        setSelectedGroup(detail);
+                        return api<Group[]>("/admin/api/groups");
+                      })
+                      .then(setGroups)
+                      .catch((err: Error) => setError(err.message));
+                  }}
+                >
+                  <label>
+                    User
+                    <select name="user_id" required>
+                      {users
+                        .filter(
+                          (user) =>
+                            !selectedGroup.members.some((member) => member.user_id === user.user_id),
+                        )
+                        .map((user) => (
+                          <option key={user.user_id} value={user.user_id}>
+                            {user.email}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <button type="submit">Add member</button>
+                </form>
+                <ul className="plain">
+                  {selectedGroup.members.map((member) => (
+                    <li key={member.user_id}>
+                      {member.email}
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => {
+                          api<GroupDetail>(
+                            `/admin/api/groups/${selectedGroup.group_id}/members/${member.user_id}`,
+                            { method: "DELETE" },
+                          )
+                            .then((detail) => {
+                              setSelectedGroup(detail);
+                              return api<Group[]>("/admin/api/groups");
+                            })
+                            .then(setGroups)
+                            .catch((err: Error) => setError(err.message));
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <h3>App grants</h3>
+                <form
+                  className="form-row"
+                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                    event.preventDefault();
+                    const applicationId = String(
+                      new FormData(event.currentTarget).get("application_id"),
+                    );
+                    api<GroupDetail>(`/admin/api/groups/${selectedGroup.group_id}/grants`, {
+                      method: "POST",
+                      body: JSON.stringify({ application_id: applicationId }),
+                    })
+                      .then(setSelectedGroup)
+                      .catch((err: Error) => setError(err.message));
+                  }}
+                >
+                  <label>
+                    Application
+                    <select name="application_id" required>
+                      {apps
+                        .filter(
+                          (app) =>
+                            !selectedGroup.grants.some(
+                              (grant) => grant.application_id === app.application_id,
+                            ),
+                        )
+                        .map((app) => (
+                          <option key={app.application_id} value={app.application_id}>
+                            {app.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <button type="submit">Grant access</button>
+                </form>
+                <ul className="plain">
+                  {selectedGroup.grants.map((grant) => (
+                    <li key={grant.application_id}>
+                      <span className="mono">{grant.application_id}</span>
+                      <span className="muted"> {grant.permission}</span>
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => {
+                          api<GroupDetail>(
+                            `/admin/api/groups/${selectedGroup.group_id}/grants/${grant.application_id}`,
+                            { method: "DELETE" },
+                          )
+                            .then(setSelectedGroup)
+                            .catch((err: Error) => setError(err.message));
+                        }}
+                      >
+                        Revoke
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="muted">Select a group to manage members and app grants.</p>
+            )}
+          </div>
         </section>
       )}
     </div>

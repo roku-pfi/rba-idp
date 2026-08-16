@@ -7,6 +7,7 @@
     credentials: document.getElementById("panel-credentials"),
     challenge: document.getElementById("panel-challenge"),
     blocked: document.getElementById("panel-blocked"),
+    denied: document.getElementById("panel-denied"),
     session: document.getElementById("panel-session"),
     unavailable: document.getElementById("panel-unavailable"),
   };
@@ -121,6 +122,10 @@
       setError("login-error", "Email or password is not right.");
       return;
     }
+    if (outcome === "ACCESS_DENIED") {
+      show("denied");
+      return;
+    }
     if (outcome === "BLOCKED") {
       renderDecision(document.getElementById("blocked-decision"), body);
       show("blocked");
@@ -204,6 +209,7 @@
 
   document.getElementById("challenge-restart").addEventListener("click", restart);
   document.getElementById("blocked-restart").addEventListener("click", restart);
+  document.getElementById("denied-restart").addEventListener("click", restart);
   document.getElementById("unavailable-restart").addEventListener("click", restart);
 
   if (boot.unknown_application) {

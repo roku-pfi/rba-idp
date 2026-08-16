@@ -8,6 +8,8 @@
     tab: "decisions",
     users: [],
     apps: [],
+    groups: [],
+    selectedGroup: null,
     decisions: [],
     policyText: "",
     error: "",
@@ -90,6 +92,19 @@
     try {
       if (state.tab === "users") state.users = await api("/admin/api/users");
       if (state.tab === "apps") state.apps = await api("/admin/api/applications");
+      if (state.tab === "groups") {
+        const [listed, directory, registered] = await Promise.all([
+          api("/admin/api/groups"),
+          api("/admin/api/users"),
+          api("/admin/api/applications"),
+        ]);
+        state.groups = listed;
+        state.users = directory;
+        state.apps = registered;
+        if (state.selectedGroup) {
+          state.selectedGroup = await api(`/admin/api/groups/${state.selectedGroup.group_id}`);
+        }
+      }
       if (state.tab === "decisions") {
         const body = await api("/admin/api/decisions");
         state.decisions = body.items || [];
@@ -242,6 +257,194 @@
     );
   }
 
+  async function refreshGroup(groupId) {
+    state.selectedGroup = await api(`/admin/api/groups/${groupId}`);
+    state.groups = await api("/admin/api/groups");
+    render();
+  }
+
+  function groupsPanel() {
+    const rows = state.groups.map((row) =>
+      el("tr", { class: state.selectedGroup?.group_id === row.group_id ? "selected" : "" },
+        el("td", {},
+          el("button", {
+            class: "linkish",
+            type: "button",
+            onClick: async () => {
+              try {
+                state.selectedGroup = await api(`/admin/api/groups/${row.group_id}`);
+                render();
+              } catch (err) {
+                state.error = err.message;
+                render();
+              }
+            },
+          }, row.name),
+          el("div", { class: "muted mono" }, row.group_id),
+        ),
+        el("td", {}, String(row.member_count)),
+      ),
+    );
+    const detail = state.selectedGroup
+      ? el("div", {},
+          el("h2", {}, state.selectedGroup.name),
+          el("p", { class: "muted" }, state.selectedGroup.description || "No description"),
+          el("button", {
+            class: "secondary",
+            type: "button",
+            onClick: async () => {
+              try {
+                await api(`/admin/api/groups/${state.selectedGroup.group_id}`, { method: "DELETE" });
+                state.selectedGroup = null;
+                state.notice = "Group deleted.";
+                await loadTab();
+              } catch (err) {
+                state.error = err.message;
+                render();
+              }
+            },
+          }, "Delete group"),
+          el("h3", {}, "Members"),
+          el("form", {
+            class: "form-row",
+            onSubmit: async (event) => {
+              event.preventDefault();
+              try {
+                await api(`/admin/api/groups/${state.selectedGroup.group_id}/members`, {
+                  method: "POST",
+                  body: JSON.stringify({ user_id: event.currentTarget.user_id.value }),
+                });
+                await refreshGroup(state.selectedGroup.group_id);
+              } catch (err) {
+                state.error = err.message;
+                render();
+              }
+            },
+          },
+            el("label", {}, "User",
+              el("select", { name: "user_id", required: true },
+                ...state.users
+                  .filter((user) => !(state.selectedGroup.members || []).some((m) => m.user_id === user.user_id))
+                  .map((user) => el("option", { value: user.user_id }, user.email)),
+              ),
+            ),
+            el("button", { type: "submit" }, "Add member"),
+          ),
+          el("ul", { class: "plain" },
+            ...(state.selectedGroup.members || []).map((member) =>
+              el("li", {},
+                member.email,
+                el("button", {
+                  class: "secondary",
+                  type: "button",
+                  onClick: async () => {
+                    try {
+                      await api(
+                        `/admin/api/groups/${state.selectedGroup.group_id}/members/${member.user_id}`,
+                        { method: "DELETE" },
+                      );
+                      await refreshGroup(state.selectedGroup.group_id);
+                    } catch (err) {
+                      state.error = err.message;
+                      render();
+                    }
+                  },
+                }, "Remove"),
+              ),
+            ),
+          ),
+          el("h3", {}, "App grants"),
+          el("form", {
+            class: "form-row",
+            onSubmit: async (event) => {
+              event.preventDefault();
+              try {
+                await api(`/admin/api/groups/${state.selectedGroup.group_id}/grants`, {
+                  method: "POST",
+                  body: JSON.stringify({ application_id: event.currentTarget.application_id.value }),
+                });
+                await refreshGroup(state.selectedGroup.group_id);
+              } catch (err) {
+                state.error = err.message;
+                render();
+              }
+            },
+          },
+            el("label", {}, "Application",
+              el("select", { name: "application_id", required: true },
+                ...state.apps
+                  .filter((app) => !(state.selectedGroup.grants || []).some((g) => g.application_id === app.application_id))
+                  .map((app) => el("option", { value: app.application_id }, app.name)),
+              ),
+            ),
+            el("button", { type: "submit" }, "Grant access"),
+          ),
+          el("ul", { class: "plain" },
+            ...(state.selectedGroup.grants || []).map((grant) =>
+              el("li", {},
+                el("span", { class: "mono" }, grant.application_id),
+                ` ${grant.permission}`,
+                el("button", {
+                  class: "secondary",
+                  type: "button",
+                  onClick: async () => {
+                    try {
+                      await api(
+                        `/admin/api/groups/${state.selectedGroup.group_id}/grants/${grant.application_id}`,
+                        { method: "DELETE" },
+                      );
+                      await refreshGroup(state.selectedGroup.group_id);
+                    } catch (err) {
+                      state.error = err.message;
+                      render();
+                    }
+                  },
+                }, "Revoke"),
+              ),
+            ),
+          ),
+        )
+      : el("p", { class: "muted" }, "Select a group to manage members and app grants.");
+    return el("section", { class: "panel" },
+      el("h1", {}, "Groups"),
+      el("p", { class: "lede" }, "App-scoped access. A user may sign in to an application only if one of their groups grants access."),
+      banner(),
+      el("form", {
+        class: "form-row",
+        onSubmit: async (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          try {
+            state.selectedGroup = await api("/admin/api/groups", {
+              method: "POST",
+              body: JSON.stringify({
+                name: form.name.value,
+                description: form.description.value || "",
+              }),
+            });
+            form.reset();
+            state.notice = "Group created.";
+            await loadTab();
+          } catch (err) {
+            state.error = err.message;
+            render();
+          }
+        },
+      },
+        el("label", {}, "Name", el("input", { name: "name", required: true })),
+        el("label", {}, "Description", el("input", { name: "description" })),
+        el("button", { type: "submit" }, "Create group"),
+      ),
+      el("div", { class: "split" },
+        el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "Group"), el("th", {}, "Members"))),
+          el("tbody", {}, ...rows),
+        ),
+        detail,
+      ),
+    );
+  }
+
   function decisionsPanel() {
     const rows = state.decisions.map((item) => {
       const reasons = (item.reasons || []).map((reason) =>
@@ -323,10 +526,12 @@
       ["policy", "Policy"],
       ["users", "Users"],
       ["apps", "Applications"],
+      ["groups", "Groups"],
     ];
     const panel = {
       users: usersPanel,
       apps: appsPanel,
+      groups: groupsPanel,
       decisions: decisionsPanel,
       policy: policyPanel,
     }[state.tab]();

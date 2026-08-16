@@ -22,10 +22,10 @@ from rba_contracts import (
     outcome_from_action,
 )
 from sqlalchemy import select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from rba_idp.config import Settings
-from rba_idp.db.models import Application, IdpSession, MfaChallenge, User
+from rba_idp.db.models import Application, GroupAppGrant, GroupMembership, IdpSession, MfaChallenge, User
 from rba_idp.db.session import session_scope
 from rba_idp.passwords import verify_password
 from rba_idp.pdp import PdpClient, PdpUnavailable
@@ -37,10 +37,31 @@ from rba_idp.tokens import (
 )
 
 
+ACCESS_DENIED_DETAIL = "user is not granted access to this application"
+
+
 def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def user_has_app_access(session: Session, user_id: str, application_id: str) -> bool:
+    """True if any of the user's groups grants ``access`` on this application."""
+    grant = session.scalar(
+        select(GroupAppGrant.group_id)
+        .join(
+            GroupMembership,
+            GroupMembership.group_id == GroupAppGrant.group_id,
+        )
+        .where(
+            GroupMembership.user_id == user_id,
+            GroupAppGrant.application_id == application_id,
+            GroupAppGrant.permission == "access",
+        )
+        .limit(1)
+    )
+    return grant is not None
 
 
 class LoginService:
@@ -70,6 +91,12 @@ class LoginService:
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
 
             user_id = user.user_id
+            if not user_has_app_access(session, user_id, body.application_id):
+                return LoginResponse(
+                    outcome=LoginOutcome.ACCESS_DENIED,
+                    user_id=user_id,
+                    detail=ACCESS_DENIED_DETAIL,
+                )
 
         request = RiskEvaluateRequest(
             event_id=uuid4(),
@@ -107,6 +134,20 @@ class LoginService:
 
             if not otp_matches(body.code, self._settings.mock_otp_code):
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+
+            if not user_has_app_access(
+                session, challenge.user_id, challenge.application_id
+            ):
+                return LoginResponse(
+                    outcome=LoginOutcome.ACCESS_DENIED,
+                    user_id=challenge.user_id,
+                    event_id=UUID(challenge.event_id),
+                    action=Action(challenge.action),
+                    risk_score=challenge.risk_score,
+                    risk_level=RiskLevel(challenge.risk_level),
+                    reasons=[Reason.model_validate(item) for item in challenge.reasons],
+                    detail=ACCESS_DENIED_DETAIL,
+                )
 
             challenge.consumed_at = now
             token = self._persist_session(

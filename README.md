@@ -4,16 +4,16 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**IdP-6 (this slice):** admin console at `GET /admin` (users, applications,
-decision browser with reasons, policy). Hosted login stays at `GET /login`.
-No groups (**IdP-7**). No OIDC/SAML/SCIM
+**IdP-7 (this slice):** groups with app-scoped `access` grants. Hosted login
+at `GET /login`; admin console at `GET /admin` (users, applications, groups,
+decision browser, policy). No OIDC/SAML/SCIM
 ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
-[ADR-0017](../docs/decisions/0017-admin-console-colocated-on-idp.md)).
+[ADR-0019](../docs/decisions/0019-groups-grant-app-access.md)).
 
-Package version: **0.1.0**. Pins `rba-contracts` ≥ 0.3.0.
+Package version: **0.2.0**. Pins `rba-contracts` ≥ 0.4.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
-> ADRs: 0012–0017. AI: [`AGENTS.md`](AGENTS.md).
+> ADRs: 0012–0019. AI: [`AGENTS.md`](AGENTS.md).
 
 ## Request path
 
@@ -29,6 +29,7 @@ browser  GET /admin
 client → POST /login
            → lookup application (rba_idp)
            → verify password (bcrypt)
+           → require group grant (access) for this application
            → POST /risk/evaluate (rba-decision-service)
            → ALLOW          → session token
            → MFA / REAUTH   → challenge_id  (POST /mfa/verify with 000000)
@@ -43,7 +44,8 @@ client → POST /login
 | `BLOCK` | `BLOCKED` | nothing |
 
 Wrong password / unknown user → `INVALID_CREDENTIALS` (HTTP 200, **no** PDP
-call). Unknown `application_id` → HTTP 400 (JSON) or an “unknown application”
+call). Password ok but no group grant for the app → `ACCESS_DENIED` (HTTP 200,
+**no** PDP call; not a risk `BLOCK`). Unknown `application_id` → HTTP 400 (JSON) or an “unknown application”
 panel (HTML). PDP down / invalid response → HTTP 503 (fail closed; not a fake
 `BLOCK`). Admin APIs: HTTP 401 without a session, HTTP 403 if the user is not
 `is_admin`. Audit/PDP down on those proxies → HTTP 503.
@@ -68,11 +70,11 @@ src/rba_idp/
 ├── pdp.py               # HttpPdpClient → /risk/evaluate
 ├── clients.py           # policy (PDP) + audit HTTP
 ├── tokens.py            # opaque session token + mock OTP compare
-├── seed.py              # demo user, admin user, two applications
-├── db/models.py         # applications, users, sessions, mfa_challenges
+├── seed.py              # demo user, admin user, two applications, two groups
+├── db/models.py         # applications, users, groups, sessions, mfa_challenges
 ├── db/session.py
-├── services/login.py    # verify + PDP + session/challenge
-├── services/admin.py    # users/apps CRUD; proxy decisions/policy
+├── services/login.py    # verify + group grant + PDP + session/challenge
+├── services/admin.py    # users/apps/groups CRUD; proxy decisions/policy
 ├── web/                 # hosted login + built admin SPA
 │   ├── templates/login.html
 │   ├── static/login.{css,js}  admin.{css,js}
@@ -100,6 +102,10 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `PATCH` | `/admin/api/users/{user_id}` | Enable / role / password |
 | `GET/POST` | `/admin/api/applications` | List / register |
 | `PATCH` | `/admin/api/applications/{id}` | Name / enabled |
+| `GET/POST` | `/admin/api/groups` | List / create |
+| `GET/PATCH/DELETE` | `/admin/api/groups/{id}` | Detail / rename / delete |
+| `POST/DELETE` | `/admin/api/groups/{id}/members` | Add / remove user |
+| `POST/DELETE` | `/admin/api/groups/{id}/grants` | Grant / revoke app `access` |
 | `GET` | `/admin/api/decisions` | Decision browser (reasons) |
 | `GET/PUT` | `/admin/api/policy` | Active PDP `PolicyConfig` |
 
@@ -114,6 +120,7 @@ Created on startup:
 
 - `applications` — registered clients (`application_id` PK)
 - `users` — `user_id`, unique email, bcrypt `password_hash`, `is_admin`
+- `groups` / `group_memberships` / `group_app_grants` — IdP-7 app access
 - `sessions` — PK `token_hash`; TTL `SESSION_TTL_SECONDS` (8h)
 - `mfa_challenges` — pending step-up; TTL 5m; `consumed_at` on success
 
@@ -165,6 +172,8 @@ Written on every boot if missing (`seed.py`):
 | Application | `idp-admin-console` (IdP admin console) |
 | User | `demo@example.com` / `demo-password` (`usr_demo`, not admin) |
 | User | `admin@example.com` / `admin-password` (`usr_admin`, `is_admin`) |
+| Group | `grp_banking` — demo user → `access` on `demo-banking-app` |
+| Group | `grp_operators` — admin user → `access` on both apps |
 | Mock OTP | `000000` |
 
 Matches `rba-contracts` IdP login examples.
@@ -191,9 +200,11 @@ Matches `rba-contracts` IdP login examples.
 
 - Import login/evaluate/admin models from `rba-contracts`. Map actions with
   `outcome_from_action` only.
-- Call `/risk/evaluate` only after a successful password verify.
+- Call `/risk/evaluate` only after a successful password verify **and** a
+  group grant for the application.
 - Do not put identity in `decision-service`.
-- Do not implement OIDC/SAML/SCIM. Do not add groups (IdP-7).
+- Do not implement OIDC/SAML/SCIM. Groups grant `access` only (ADR-0019);
+  `is_admin` still gates `/admin/api`.
 - Hosted login stays on this origin ([ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
 - Admin is colocated here ([ADR-0017](../docs/decisions/0017-admin-console-colocated-on-idp.md));
   do not query `rba_audit` / `rba_decision` tables from this process.
@@ -201,5 +212,5 @@ Matches `rba-contracts` IdP login examples.
 
 ## Status
 
-IdP-6 admin console. Next: **IdP-7** stretch (groups). Roadmap:
+IdP-7 groups / app-scoped permissions. Next: k8s/Helm/observability. Roadmap:
 `../docs/plans/status.md`.

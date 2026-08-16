@@ -27,6 +27,7 @@ def test_hosted_login_page(client: TestClient) -> None:
     assert "text/html" in resp.headers["content-type"]
     html = resp.text
     assert 'id="form-login"' in html
+    assert 'id="panel-denied"' in html
     assert "/static/login.js" in html
     boot = _boot(html)
     assert boot["application_id"] == "demo-banking-app"
@@ -66,6 +67,7 @@ def test_static_assets(client: TestClient) -> None:
     assert "POST" in js.text
     assert "/login" in js.text
     assert "/mfa/verify" in js.text
+    assert "ACCESS_DENIED" in js.text
 
 
 def test_json_login_still_works_alongside_html(client: TestClient) -> None:
