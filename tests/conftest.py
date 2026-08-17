@@ -5,9 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from rba_idp.config import Settings
 from rba_idp.main import create_app
-from tests.helpers import StubAudit, StubPdp, StubPolicy
+from tests.helpers import StubAudit, StubPdp, StubPolicy, test_settings
 
 
 @pytest.fixture
@@ -17,7 +16,7 @@ def pdp() -> StubPdp:
 
 @pytest.fixture
 def client(pdp: StubPdp) -> TestClient:
-    settings = Settings(use_memory_db=True)
+    settings = test_settings()
     app = create_app(
         settings,
         pdp_client=pdp,

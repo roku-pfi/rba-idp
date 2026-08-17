@@ -4,17 +4,17 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**Demo-3:** thin callback (`redirect_uri` + `POST /callback/token`) so
-`rba-demo-banking` can return after `AUTHENTICATED`. Country/ASN on hosted
-login (`geo.py` TEST-NET prefixes + `?country=` / `?asn=` override). Presenter
-walkthrough is on the bank (`/walkthrough`), not this origin. Travel
-rule is in `rba-features` / the PDP, not here.
+**Demo-4:** WebAuthn passkey for `REQUIRE_MFA` / `REAUTHENTICATE` (opaque
+“confirm it’s you”). Mock OTP `000000` remains on `POST /mfa/verify` for tests.
+Completing MFA does **not** re-score. Country/ASN on hosted login; presenter
+walkthrough is on the bank (`/walkthrough`). Travel rule is in `rba-features` /
+the PDP, not here.
 Hosted login at `GET /login`; admin console at `GET /admin`. No OIDC/SAML/SCIM
 ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
 [ADR-0019](../docs/decisions/0019-groups-grant-app-access.md),
 [ADR-0022](../docs/decisions/0022-product-demo-over-gitops.md)).
 
-Package version: **0.3.0**. Pins `rba-contracts` ≥ 0.5.0.
+Package version: **0.4.0**. Pins `rba-contracts` ≥ 0.6.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
 > ADRs: 0012–0026. AI: [`AGENTS.md`](AGENTS.md).
@@ -36,7 +36,7 @@ client → POST /login
            → require group grant (access) for this application
            → POST /risk/evaluate (rba-decision-service)
            → ALLOW          → session token
-           → MFA / REAUTH   → challenge_id  (POST /mfa/verify with 000000)
+           → MFA / REAUTH   → challenge_id  (WebAuthn; tests may POST /mfa/verify with 000000)
            → BLOCK          → rejected (no session)
 ```
 
@@ -54,11 +54,12 @@ panel (HTML). PDP down / invalid response → HTTP 503 (fail closed; not a fake
 `BLOCK`). Admin APIs: HTTP 401 without a session, HTTP 403 if the user is not
 `is_admin`. Audit/PDP down on those proxies → HTTP 503.
 
-Mock OTP is always `000000` (thesis stand-in, not TOTP/WebAuthn). Completing
-MFA does **not** re-score. Wrong code → `INVALID_CREDENTIALS` (challenge stays
-open until expiry). Success → same `LoginResponse` shape with a session.
-`GET /session` with `Authorization: Bearer …`. `POST /logout` returns 204
-(idempotent).
+Live MFA is a platform passkey (`POST /mfa/webauthn/options` then
+`POST /mfa/webauthn/verify`). Completing MFA does **not** re-score. Mock OTP
+`000000` on `POST /mfa/verify` stays for tests. Wrong factor →
+`INVALID_CREDENTIALS` (challenge stays open until expiry). Success → same
+`LoginResponse` shape with a session. `GET /session` with
+`Authorization: Bearer …`. `POST /logout` returns 204 (idempotent).
 
 Password never leaves this service (not logged, not returned, not sent to the
 PDP). Session tokens are opaque random strings, stored **hashed** (sha256).
@@ -74,8 +75,9 @@ src/rba_idp/
 ├── pdp.py               # HttpPdpClient → /risk/evaluate
 ├── clients.py           # policy (PDP) + audit HTTP
 ├── tokens.py            # opaque session token + mock OTP compare
+├── webauthn.py          # passkey create/get (py_webauthn)
 ├── seed.py              # demo user, admin user, two applications, two groups
-├── db/models.py         # applications, users, groups, sessions, mfa_challenges
+├── db/models.py         # applications, users, groups, sessions, mfa, passkeys
 ├── db/session.py
 ├── services/login.py    # verify + group grant + PDP + session/challenge
 ├── services/admin.py    # users/apps/groups CRUD; proxy decisions/policy
@@ -101,7 +103,9 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `GET` | `/static/…` | Login / admin CSS / JS |
 | `GET` | `/healthz` | `{ "status": "ok" }` |
 | `POST` | `/login` | `LoginRequest` → `LoginResponse` |
-| `POST` | `/mfa/verify` | `MfaVerifyRequest` → `LoginResponse` |
+| `POST` | `/mfa/verify` | Mock OTP (`MfaVerifyRequest`) → `LoginResponse` |
+| `POST` | `/mfa/webauthn/options` | `MfaWebAuthnOptionsRequest` → create/get options |
+| `POST` | `/mfa/webauthn/verify` | `MfaWebAuthnVerifyRequest` → `LoginResponse` |
 | `GET` | `/session` | Bearer required → `SessionResponse` (`is_admin` on user) |
 | `POST` | `/logout` | Bearer; 204 even if already gone |
 | `GET/POST` | `/admin/api/users` | List / create (admin session) |
@@ -128,7 +132,8 @@ Created on startup:
 - `users` — `user_id`, unique email, bcrypt `password_hash`, `is_admin`
 - `groups` / `group_memberships` / `group_app_grants` — IdP-7 app access
 - `sessions` — PK `token_hash`; TTL `SESSION_TTL_SECONDS` (8h)
-- `mfa_challenges` — pending step-up; TTL 5m; `consumed_at` on success
+- `mfa_challenges` — pending step-up; TTL 5m; `consumed_at` on success; WebAuthn nonce
+- `webauthn_credentials` — platform passkeys (`credential_id` PK, COSE public key)
 
 ## Setup
 
@@ -192,7 +197,8 @@ Written on every boot if missing (`seed.py`):
 | User | `admin@example.com` / `admin-password` (`usr_admin`, `is_admin`) |
 | Group | `grp_banking` — demo user → `access` on `demo-banking-app` |
 | Group | `grp_operators` — admin user → `access` on both apps |
-| Mock OTP | `000000` |
+| Passkey | none seeded — first MFA **creates** a platform passkey |
+| Mock OTP | `000000` (tests only) |
 
 Matches `rba-contracts` IdP login examples.
 
@@ -207,7 +213,9 @@ Matches `rba-contracts` IdP login examples.
 | `AUDIT_BASE_URL` | `http://localhost:8000` | PDP `GET /decisions` (live browser). Set to `:8002` only for the async audit copy |
 | `SESSION_TTL_SECONDS` | `28800` | 8h bearer session |
 | `CHALLENGE_TTL_SECONDS` | `300` | 5m MFA/reauth challenge |
-| `MOCK_OTP_CODE` | `000000` | thesis mock, not a real factor |
+| `MOCK_OTP_CODE` | `000000` | tests only; hosted login uses WebAuthn |
+| `WEBAUTHN_RP_ID` | `localhost` | must match the browser host |
+| `WEBAUTHN_ORIGIN` | `http://localhost:8001,http://localhost:8080` | comma-separated; k8s sets `:8080` |
 | `SEED_USER_ID` / `SEED_EMAIL` / `SEED_PASSWORD` | `usr_demo` / `demo@example.com` / `demo-password` | |
 | `SEED_ADMIN_*` | `usr_admin` / `admin@example.com` / `admin-password` | |
 | `SEED_APPLICATION_ID` / `SEED_APPLICATION_NAME` | `demo-banking-app` / `Demo banking app` | |
@@ -231,6 +239,6 @@ Matches `rba-contracts` IdP login examples.
 
 ## Status
 
-IdP-7 groups / app-scoped permissions. Demo-2 thin callback. Local k8s via
+IdP-7 groups / app-scoped permissions. Demo-4 WebAuthn step-up. Local k8s via
 `../rba-infra` Helm (K8s-1 + demo chart). Observability: `../rba-infra`
 Grafana `/grafana` (K8s-2). Roadmap: `../docs/plans/status.md`.

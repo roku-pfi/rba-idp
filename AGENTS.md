@@ -14,10 +14,12 @@ status / decisions live in the **`docs`** repo (`../docs`):
 - Decisions → `../docs/decisions/` (ADR-0012–0020)
 - Narrative → `../docs/devlog.md`
 
-This slice is Demo-3-ready: thin `redirect_uri` callback for `rba-demo-banking`.
-Travel rule stays in `rba-features` + the PDP. Do **not** add OIDC/SAML/SCIM
-([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)). Next is Demo-4
-(WebAuthn). Presenter walkthrough lives on the bank (`/walkthrough`), not here.
+This slice is Demo-4: WebAuthn passkey for `REQUIRE_MFA` (opaque copy).
+Mock OTP stays on `POST /mfa/verify` for tests. Completing MFA does not
+re-score. Travel rule stays in `rba-features` + the PDP. Do **not** add
+OIDC/SAML/SCIM
+([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)).
+Presenter walkthrough lives on the bank (`/walkthrough`), not here.
 
 ## Layout
 
@@ -25,15 +27,15 @@ Travel rule stays in `rba-features` + the PDP. Do **not** add OIDC/SAML/SCIM
 src/rba_idp/
   main.py                 # FastAPI: login HTML + JSON API + admin BFF
   config.py
-  passwords.py / tokens.py / pdp.py / clients.py
+  tokens.py / pdp.py / clients.py / webauthn.py
   seed.py                 # demo + admin user, two applications, two groups
-  db/                     # applications, users, groups, sessions, mfa_challenges
-  services/login.py       # verify + group grant + PDP enforce + session/challenge
+  db/                     # applications, users, groups, sessions, mfa, passkeys
+  services/login.py       # verify + group grant + PDP enforce + session/WebAuthn
   services/admin.py       # directory + groups CRUD + proxy to audit/policy
   web/                    # hosted login + Vite admin build
   geo.py                  # TEST-NET prefix → country/ASN + query override
 admin-ui/                 # React + Vite source (`npm run build`)
-tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.py test_groups.py test_geo.py
+tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.py test_groups.py test_geo.py test_webauthn.py
 ```
 
 ## Guardrails
@@ -50,7 +52,9 @@ tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.
 - Hosted login stays here, not a new `rba-frontend` repo (ADR-0016/0017).
 - Passwords: bcrypt only; never log or return the password.
 - Session tokens: opaque, stored hashed; `Authorization: Bearer`.
-- MFA: mock OTP (`000000`) is enough. No WebAuthn/TOTP provider.
+- MFA: hosted login is WebAuthn (platform authenticator). Mock OTP (`000000`)
+  stays on `POST /mfa/verify` for tests. No TOTP/SMS. Completing MFA does
+  **not** re-score.
 - Do **not** add Redis/Postgres compose here — use `../rba-infra`.
 - PDP or audit unavailable → HTTP 503 (fail closed). Do not invent a `BLOCK`
   or fake decisions.

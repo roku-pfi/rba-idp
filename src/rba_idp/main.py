@@ -29,6 +29,9 @@ from rba_contracts import (
     LoginRequest,
     LoginResponse,
     MfaVerifyRequest,
+    MfaWebAuthnOptionsRequest,
+    MfaWebAuthnOptionsResponse,
+    MfaWebAuthnVerifyRequest,
     PatchApplicationRequest,
     PatchGroupRequest,
     PatchUserRequest,
@@ -105,7 +108,7 @@ def create_app(
             session_factory, login_service, policy, audit
         )
         logger.info(
-            "rba-idp ready (Demo-2 callback). seed app=%s redirect=%s admin=%s pdp=%s audit=%s",
+            "rba-idp ready (Demo-4 WebAuthn). seed app=%s redirect=%s admin=%s pdp=%s audit=%s",
             settings.seed_application_id,
             settings.seed_application_redirect_uri,
             settings.seed_admin_email,
@@ -166,6 +169,27 @@ def create_app(
     )
     def verify_mfa(body: MfaVerifyRequest, request: Request) -> LoginResponse:
         return _run(request, lambda svc: svc.verify_mfa(body))
+
+    @app.post(
+        "/mfa/webauthn/options",
+        response_model=MfaWebAuthnOptionsResponse,
+        response_model_exclude_none=True,
+    )
+    def mfa_webauthn_options(
+        body: MfaWebAuthnOptionsRequest, request: Request
+    ) -> MfaWebAuthnOptionsResponse:
+        return _run(request, lambda svc: svc.webauthn_options(body))
+
+    @app.post(
+        "/mfa/webauthn/verify",
+        response_model=LoginResponse,
+        response_model_exclude_none=True,
+        response_model_exclude_defaults=True,
+    )
+    def mfa_webauthn_verify(
+        body: MfaWebAuthnVerifyRequest, request: Request
+    ) -> LoginResponse:
+        return _run(request, lambda svc: svc.verify_webauthn(body))
 
     @app.get("/session", response_model=SessionResponse)
     def get_session(

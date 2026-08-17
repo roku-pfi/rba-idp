@@ -1,4 +1,4 @@
-"""Password verify, PDP enforce, session on ALLOW, mock MFA/reauth, thin callback."""
+"""Password verify, PDP enforce, session on ALLOW, WebAuthn MFA, mock OTP for tests."""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ from rba_contracts import (
     LoginRequest,
     LoginResponse,
     MfaVerifyRequest,
+    MfaWebAuthnOptionsRequest,
+    MfaWebAuthnOptionsResponse,
+    MfaWebAuthnVerifyRequest,
     Reason,
     RiskEvaluateRequest,
     RiskEvaluateResponse,
@@ -23,10 +26,13 @@ from rba_contracts import (
     SessionResponse,
     SessionToken,
     UserPublic,
+    WebAuthnCeremonyMode,
     outcome_from_action,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from webauthn.helpers import bytes_to_base64url
+from webauthn.helpers.exceptions import WebAuthnException
 
 from rba_idp.config import Settings
 from rba_idp.db.models import (
@@ -37,6 +43,7 @@ from rba_idp.db.models import (
     IdpSession,
     MfaChallenge,
     User,
+    WebAuthnCredential,
 )
 from rba_idp.db.session import session_scope
 from rba_idp.geo import resolve_login_signals, scored_ip
@@ -48,6 +55,7 @@ from rba_idp.tokens import (
     new_session_token,
     otp_matches,
 )
+from rba_idp.webauthn import creation_options, request_options, verify_create, verify_get
 
 
 ACCESS_DENIED_DETAIL = "user is not granted access to this application"
@@ -160,57 +168,93 @@ class LoginService:
     def verify_mfa(self, body: MfaVerifyRequest) -> LoginResponse:
         now = datetime.now(timezone.utc)
         with session_scope(self._session_factory) as session:
-            challenge = session.get(MfaChallenge, str(body.challenge_id))
-            if (
-                challenge is None
-                or challenge.consumed_at is not None
-                or _as_utc(challenge.expires_at) <= now
-            ):
+            challenge = self._open_challenge(session, body.challenge_id, now)
+            if not otp_matches(body.code, self._settings.mock_otp_code):
+                return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+            return self._finish_challenge(
+                session, challenge, now, redirect_uri=body.redirect_uri
+            )
+
+    def webauthn_options(
+        self, body: MfaWebAuthnOptionsRequest
+    ) -> MfaWebAuthnOptionsResponse:
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            challenge = self._open_challenge(session, body.challenge_id, now)
+            cred_ids = list(
+                session.scalars(
+                    select(WebAuthnCredential.credential_id).where(
+                        WebAuthnCredential.user_id == challenge.user_id
+                    )
+                )
+            )
+            if cred_ids:
+                mode = WebAuthnCeremonyMode.GET
+                nonce, public_key = request_options(self._settings, cred_ids)
+            else:
+                user = session.get(User, challenge.user_id)
+                if user is None or not user.enabled:
+                    raise HTTPException(
+                        status_code=400, detail="unknown or expired challenge"
+                    )
+                mode = WebAuthnCeremonyMode.CREATE
+                nonce, public_key = creation_options(
+                    self._settings, user_id=user.user_id, email=user.email
+                )
+            challenge.webauthn_challenge = nonce
+            challenge.webauthn_mode = mode.value
+            return MfaWebAuthnOptionsResponse(
+                challenge_id=body.challenge_id,
+                mode=mode,
+                public_key=public_key,
+            )
+
+    def verify_webauthn(self, body: MfaWebAuthnVerifyRequest) -> LoginResponse:
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            challenge = self._open_challenge(session, body.challenge_id, now)
+            if not challenge.webauthn_challenge or not challenge.webauthn_mode:
                 raise HTTPException(
                     status_code=400, detail="unknown or expired challenge"
                 )
-
-            if not otp_matches(body.code, self._settings.mock_otp_code):
+            try:
+                if challenge.webauthn_mode == WebAuthnCeremonyMode.CREATE.value:
+                    verified = verify_create(
+                        self._settings,
+                        credential=body.credential,
+                        expected_challenge=challenge.webauthn_challenge,
+                    )
+                    session.add(
+                        WebAuthnCredential(
+                            credential_id=bytes_to_base64url(verified.credential_id),
+                            user_id=challenge.user_id,
+                            public_key=verified.credential_public_key,
+                            sign_count=verified.sign_count,
+                        )
+                    )
+                else:
+                    cred_id = body.credential.get("id")
+                    if not isinstance(cred_id, str):
+                        return LoginResponse(
+                            outcome=LoginOutcome.INVALID_CREDENTIALS
+                        )
+                    stored = session.get(WebAuthnCredential, cred_id)
+                    if stored is None or stored.user_id != challenge.user_id:
+                        return LoginResponse(
+                            outcome=LoginOutcome.INVALID_CREDENTIALS
+                        )
+                    verified = verify_get(
+                        self._settings,
+                        credential=body.credential,
+                        expected_challenge=challenge.webauthn_challenge,
+                        public_key=stored.public_key,
+                        sign_count=stored.sign_count,
+                    )
+                    stored.sign_count = verified.new_sign_count
+            except (WebAuthnException, ValueError, TypeError, KeyError):
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
-
-            if not user_has_app_access(
-                session, challenge.user_id, challenge.application_id
-            ):
-                return LoginResponse(
-                    outcome=LoginOutcome.ACCESS_DENIED,
-                    user_id=challenge.user_id,
-                    event_id=UUID(challenge.event_id),
-                    action=Action(challenge.action),
-                    risk_score=challenge.risk_score,
-                    risk_level=RiskLevel(challenge.risk_level),
-                    reasons=[Reason.model_validate(item) for item in challenge.reasons],
-                    detail=ACCESS_DENIED_DETAIL,
-                )
-
-            app = session.get(Application, challenge.application_id)
-            registered_redirect = app.redirect_uri if app is not None else None
-            challenge.consumed_at = now
-            token = self._persist_session(
-                session, challenge.user_id, challenge.application_id, now
-            )
-            redirect_to = self._persist_callback(
-                session,
-                user_id=challenge.user_id,
-                application_id=challenge.application_id,
-                raw_token=token.token,
-                requested_redirect=body.redirect_uri,
-                registered_redirect=registered_redirect,
-            )
-            return LoginResponse(
-                outcome=LoginOutcome.AUTHENTICATED,
-                user_id=challenge.user_id,
-                event_id=UUID(challenge.event_id),
-                action=Action(challenge.action),
-                risk_score=challenge.risk_score,
-                risk_level=RiskLevel(challenge.risk_level),
-                reasons=[Reason.model_validate(item) for item in challenge.reasons],
-                session=token,
-                redirect_to=redirect_to,
+            return self._finish_challenge(
+                session, challenge, now, redirect_uri=body.redirect_uri
             )
 
     def exchange_code(self, body: CallbackTokenRequest) -> CallbackTokenResponse:
@@ -389,6 +433,68 @@ class LoginService:
                 )
             )
         return challenge_id
+
+    def _open_challenge(
+        self, session: Session, challenge_id: UUID, now: datetime
+    ) -> MfaChallenge:
+        challenge = session.get(MfaChallenge, str(challenge_id))
+        if (
+            challenge is None
+            or challenge.consumed_at is not None
+            or _as_utc(challenge.expires_at) <= now
+        ):
+            raise HTTPException(
+                status_code=400, detail="unknown or expired challenge"
+            )
+        return challenge
+
+    def _finish_challenge(
+        self,
+        session: Session,
+        challenge: MfaChallenge,
+        now: datetime,
+        *,
+        redirect_uri: str | None,
+    ) -> LoginResponse:
+        if not user_has_app_access(
+            session, challenge.user_id, challenge.application_id
+        ):
+            return LoginResponse(
+                outcome=LoginOutcome.ACCESS_DENIED,
+                user_id=challenge.user_id,
+                event_id=UUID(challenge.event_id),
+                action=Action(challenge.action),
+                risk_score=challenge.risk_score,
+                risk_level=RiskLevel(challenge.risk_level),
+                reasons=[Reason.model_validate(item) for item in challenge.reasons],
+                detail=ACCESS_DENIED_DETAIL,
+            )
+
+        app = session.get(Application, challenge.application_id)
+        registered_redirect = app.redirect_uri if app is not None else None
+        challenge.consumed_at = now
+        token = self._persist_session(
+            session, challenge.user_id, challenge.application_id, now
+        )
+        redirect_to = self._persist_callback(
+            session,
+            user_id=challenge.user_id,
+            application_id=challenge.application_id,
+            raw_token=token.token,
+            requested_redirect=redirect_uri,
+            registered_redirect=registered_redirect,
+        )
+        return LoginResponse(
+            outcome=LoginOutcome.AUTHENTICATED,
+            user_id=challenge.user_id,
+            event_id=UUID(challenge.event_id),
+            action=Action(challenge.action),
+            risk_score=challenge.risk_score,
+            risk_level=RiskLevel(challenge.risk_level),
+            reasons=[Reason.model_validate(item) for item in challenge.reasons],
+            session=token,
+            redirect_to=redirect_to,
+        )
 
     def _load_session(self, authorization: str | None) -> tuple[IdpSession, User]:
         raw = bearer_token(authorization)

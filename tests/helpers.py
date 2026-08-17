@@ -156,13 +156,24 @@ class FailingAudit:
         raise ControlPlaneUnavailable("connection refused")
 
 
+def test_settings(**overrides) -> Settings:
+    values = {
+        "use_memory_db": True,
+        "webauthn_rp_id": "testserver",
+        "webauthn_origin": "http://testserver",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
 def client_for(
     pdp_client,
     *,
     policy_client=None,
     audit_client=None,
+    settings: Settings | None = None,
 ) -> TestClient:
-    settings = Settings(use_memory_db=True)
+    settings = settings or test_settings()
     return TestClient(
         create_app(
             settings,

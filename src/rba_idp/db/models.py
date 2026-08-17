@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, JSON, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, String, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -102,7 +102,10 @@ class IdpSession(Base):
 
 
 class MfaChallenge(Base):
-    """Pending MFA / reauth after the PDP asked for a step-up. Mock OTP, not TOTP."""
+    """Pending MFA / reauth after the PDP asked for a step-up.
+
+    Live path is WebAuthn (Demo-4). Mock OTP on ``POST /mfa/verify`` stays for tests.
+    """
 
     __tablename__ = "mfa_challenges"
 
@@ -118,6 +121,24 @@ class MfaChallenge(Base):
     reasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    webauthn_challenge: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    webauthn_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class WebAuthnCredential(Base):
+    """Platform passkey bound to a user. Credential id is base64url."""
+
+    __tablename__ = "webauthn_credentials"
+
+    credential_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

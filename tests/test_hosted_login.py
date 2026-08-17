@@ -109,7 +109,9 @@ def test_static_assets(client: TestClient) -> None:
     assert "POST" in js.text
     assert "/login" in js.text
     assert "boot.country" in js.text
-    assert "/mfa/verify" in js.text
+    assert "/mfa/webauthn/options" in js.text
+    assert "/mfa/webauthn/verify" in js.text
+    assert "Confirm it’s you" in js.text or "Confirm" in js.text
     assert "ACCESS_DENIED" in js.text
     assert "redirect_to" in js.text
 

@@ -29,6 +29,7 @@ def create_tables(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     _ensure_is_admin_column(engine)
     _ensure_redirect_uri_column(engine)
+    _ensure_webauthn_challenge_columns(engine)
 
 
 def _ensure_is_admin_column(engine: Engine) -> None:
@@ -56,6 +57,24 @@ def _ensure_redirect_uri_column(engine: Engine) -> None:
         return
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE applications ADD COLUMN redirect_uri VARCHAR(512)"))
+
+
+def _ensure_webauthn_challenge_columns(engine: Engine) -> None:
+    """Additive Demo-4 columns; create_all does not ALTER existing Postgres tables."""
+    inspector = inspect(engine)
+    if "mfa_challenges" not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns("mfa_challenges")}
+    blob = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
+    with engine.begin() as conn:
+        if "webauthn_challenge" not in cols:
+            conn.execute(
+                text(f"ALTER TABLE mfa_challenges ADD COLUMN webauthn_challenge {blob}")
+            )
+        if "webauthn_mode" not in cols:
+            conn.execute(
+                text("ALTER TABLE mfa_challenges ADD COLUMN webauthn_mode VARCHAR(16)")
+            )
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:

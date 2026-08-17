@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     callback_ttl_seconds: int = 2 * 60
     mock_otp_code: str = "000000"
 
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "RBA Identity"
+    # Comma-separated origins. Compose uses :8001; k3d Ingress uses :8080.
+    webauthn_origin: str = "http://localhost:8001,http://localhost:8080"
+
     seed_user_id: str = "usr_demo"
     seed_email: str = "demo@example.com"
     seed_password: str = "demo-password"

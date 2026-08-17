@@ -89,19 +89,12 @@
       return;
     }
     if (outcome === "MFA_REQUIRED" || outcome === "REAUTH_REQUIRED") {
-      const title = document.getElementById("challenge-title");
-      const lede = document.getElementById("challenge-lede");
-      if (outcome === "REAUTH_REQUIRED") {
-        title.textContent = "Confirm it’s you";
-        lede.textContent = "This sign-in needs an extra confirmation step.";
-      } else {
-        title.textContent = "Verify it’s you";
-        lede.textContent = "This sign-in needs a step-up before a session is issued.";
-      }
-      document.getElementById("form-mfa").dataset.challengeId = body.challenge_id;
+      document.getElementById("challenge-title").textContent = "Confirm it’s you";
+      document.getElementById("challenge-lede").textContent =
+        "Use this device to confirm the sign-in.";
+      document.getElementById("mfa-submit").dataset.challengeId = body.challenge_id;
       setError("mfa-error", "");
       show("challenge");
-      document.getElementById("otp").focus();
       return;
     }
     if (outcome === "AUTHENTICATED" && body.session?.token) {
@@ -162,8 +155,7 @@
     event.preventDefault();
     setError("login-error", "");
     setError("mfa-error", "");
-    document.getElementById("form-mfa").reset();
-    document.getElementById("otp").value = "";
+    delete document.getElementById("mfa-submit").dataset.challengeId;
     show("credentials");
   }
 
@@ -181,6 +173,72 @@
   document.getElementById("credentials-title").textContent = `Sign in to ${appName}`;
   document.getElementById("credentials-lede").textContent =
     "This page is hosted by the IdP. The application never sees your password.";
+
+  function b64urlToBuf(value) {
+    const pad = "=".repeat((4 - (value.length % 4)) % 4);
+    const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/") + pad);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function bufToB64url(buf) {
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    bytes.forEach((b) => {
+      binary += String.fromCharCode(b);
+    });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  }
+
+  function publicKeyFromJson(options) {
+    const pk = { ...options, challenge: b64urlToBuf(options.challenge) };
+    if (options.user) {
+      pk.user = { ...options.user, id: b64urlToBuf(options.user.id) };
+    }
+    if (options.excludeCredentials) {
+      pk.excludeCredentials = options.excludeCredentials.map((item) => ({
+        ...item,
+        id: b64urlToBuf(item.id),
+      }));
+    }
+    if (options.allowCredentials) {
+      pk.allowCredentials = options.allowCredentials.map((item) => ({
+        ...item,
+        id: b64urlToBuf(item.id),
+      }));
+    }
+    return pk;
+  }
+
+  function credentialToJson(cred) {
+    const response = cred.response;
+    const payload = {
+      id: cred.id,
+      rawId: bufToB64url(cred.rawId),
+      type: cred.type,
+      response: {
+        clientDataJSON: bufToB64url(response.clientDataJSON),
+      },
+    };
+    if (cred.authenticatorAttachment) {
+      payload.authenticatorAttachment = cred.authenticatorAttachment;
+    }
+    if (response.attestationObject) {
+      payload.response.attestationObject = bufToB64url(response.attestationObject);
+      if (typeof response.getTransports === "function") {
+        payload.response.transports = response.getTransports();
+      }
+    }
+    if (response.authenticatorData) {
+      payload.response.authenticatorData = bufToB64url(response.authenticatorData);
+      payload.response.signature = bufToB64url(response.signature);
+      if (response.userHandle) {
+        payload.response.userHandle = bufToB64url(response.userHandle);
+      }
+    }
+    return payload;
+  }
 
   document.getElementById("form-login").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -216,18 +274,42 @@
     }
   });
 
-  document.getElementById("form-mfa").addEventListener("submit", async (event) => {
-    event.preventDefault();
+  document.getElementById("mfa-submit").addEventListener("click", async () => {
     setError("mfa-error", "");
     const submit = document.getElementById("mfa-submit");
+    const challengeId = submit.dataset.challengeId;
+    if (!challengeId) return;
+    if (!window.PublicKeyCredential) {
+      setError("mfa-error", "This browser cannot confirm this device.");
+      return;
+    }
     submit.disabled = true;
     try {
+      const optionsResp = await fetch("/mfa/webauthn/options", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challenge_id: challengeId }),
+      });
+      const optionsBody = await parseJson(optionsResp);
+      if (optionsResp.status === 400) {
+        setError("mfa-error", "This challenge is unknown or expired.");
+        return;
+      }
+      const publicKey = publicKeyFromJson(optionsBody.public_key);
+      const cred =
+        optionsBody.mode === "create"
+          ? await navigator.credentials.create({ publicKey })
+          : await navigator.credentials.get({ publicKey });
+      if (!cred) {
+        setError("mfa-error", "Confirmation was cancelled.");
+        return;
+      }
       const payload = {
-        challenge_id: event.currentTarget.dataset.challengeId,
-        code: document.getElementById("otp").value,
+        challenge_id: challengeId,
+        credential: credentialToJson(cred),
       };
       if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
-      const resp = await fetch("/mfa/verify", {
+      const resp = await fetch("/mfa/webauthn/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -238,12 +320,16 @@
         return;
       }
       if (body.outcome === "INVALID_CREDENTIALS") {
-        setError("mfa-error", "That code is not right.");
+        setError("mfa-error", "Couldn't confirm this device.");
         return;
       }
       applyOutcome(body, resp.status);
-    } catch {
-      show("unavailable");
+    } catch (err) {
+      if (err && err.name === "NotAllowedError") {
+        setError("mfa-error", "Confirmation was cancelled.");
+      } else {
+        setError("mfa-error", "Couldn't confirm this device.");
+      }
     } finally {
       submit.disabled = false;
     }

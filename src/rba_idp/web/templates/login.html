@@ -33,15 +33,10 @@
       </section>
 
       <section id="panel-challenge" hidden>
-        <h1 id="challenge-title">Verify it’s you</h1>
-        <p class="lede" id="challenge-lede">This sign-in needs a step-up.</p>
-        <form id="form-mfa">
-          <label for="otp">One-time code</label>
-          <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="8">
-          <p class="hint">Thesis mock OTP: <code>000000</code></p>
-          <p class="form-error" id="mfa-error" hidden></p>
-          <button type="submit" id="mfa-submit">Verify</button>
-        </form>
+        <h1 id="challenge-title">Confirm it’s you</h1>
+        <p class="lede" id="challenge-lede">Use this device to confirm the sign-in.</p>
+        <p class="form-error" id="mfa-error" hidden></p>
+        <button type="button" id="mfa-submit">Confirm it’s you</button>
         <p class="back"><a href="#" id="challenge-restart">Use a different account</a></p>
       </section>
 
