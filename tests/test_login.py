@@ -45,6 +45,17 @@ def test_allow_issues_session_and_calls_pdp(client: TestClient, pdp: StubPdp) ->
     assert call.timestamp.tzinfo is not None
 
 
+def test_login_fills_country_from_ip_when_omitted(
+    client: TestClient, pdp: StubPdp
+) -> None:
+    payload = {k: v for k, v in LOGIN.items() if k not in ("country", "asn")}
+    resp = client.post("/login", json=payload)
+    assert resp.status_code == 200
+    call = pdp.calls[0]
+    assert call.country == "AR"
+    assert call.asn == "7303"
+
+
 def test_session_token_is_stored_hashed(client: TestClient) -> None:
     body = client.post("/login", json=LOGIN).json()
     token = body["session"]["token"]

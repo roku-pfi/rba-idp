@@ -4,11 +4,12 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**IdP-7 (this slice):** groups with app-scoped `access` grants. Hosted login
-at `GET /login`; admin console at `GET /admin` (users, applications, groups,
-decision browser, policy). No OIDC/SAML/SCIM
+**Demo-1:** country/ASN on hosted login (`geo.py` TEST-NET prefixes + `?country=` /
+`?asn=` override). Travel rule is in `rba-features` / the PDP, not here.
+Hosted login at `GET /login`; admin console at `GET /admin`. No OIDC/SAML/SCIM
 ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
-[ADR-0019](../docs/decisions/0019-groups-grant-app-access.md)).
+[ADR-0019](../docs/decisions/0019-groups-grant-app-access.md),
+[ADR-0022](../docs/decisions/0022-product-demo-over-gitops.md)).
 
 Package version: **0.2.0**. Pins `rba-contracts` ≥ 0.4.0.
 
@@ -20,7 +21,7 @@ Package version: **0.2.0**. Pins `rba-contracts` ≥ 0.4.0.
 ```
 browser  GET /login?application_id=demo-banking-app
            → HTML (email / password / MFA / blocked / signed-in)
-           → POST /login  (JSON; ip_address from the page boot payload)
+           → POST /login  (JSON; ip_address / country / asn from the page boot payload)
 browser  GET /admin
            → React SPA (after hosted login as admin)
            → /admin/api/users|applications   (IdP DB)
@@ -75,6 +76,7 @@ src/rba_idp/
 ├── db/session.py
 ├── services/login.py    # verify + group grant + PDP + session/challenge
 ├── services/admin.py    # users/apps/groups CRUD; proxy decisions/policy
+├── geo.py               # TEST-NET prefix → country/ASN + query override
 ├── web/                 # hosted login + built admin SPA
 │   ├── templates/login.html
 │   ├── static/login.{css,js}  admin.{css,js}
@@ -91,7 +93,7 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/` or `/login` | Hosted UI. Query `application_id` (default: seeded app) |
+| `GET` | `/` or `/login` | Hosted UI. Query `application_id`; optional `country` / `asn` override |
 | `GET` | `/admin` | Admin SPA. Sign in via `/login?application_id=idp-admin-console&next=/admin` |
 | `GET` | `/static/…` | Login / admin CSS / JS |
 | `GET` | `/healthz` | `{ "status": "ok" }` |

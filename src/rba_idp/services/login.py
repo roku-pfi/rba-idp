@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from rba_idp.config import Settings
 from rba_idp.db.models import Application, GroupAppGrant, GroupMembership, IdpSession, MfaChallenge, User
 from rba_idp.db.session import session_scope
+from rba_idp.geo import resolve_login_signals
 from rba_idp.passwords import verify_password
 from rba_idp.pdp import PdpClient, PdpUnavailable
 from rba_idp.tokens import (
@@ -98,14 +99,17 @@ class LoginService:
                     detail=ACCESS_DENIED_DETAIL,
                 )
 
+        signals = resolve_login_signals(
+            body.ip_address, country=body.country, asn=body.asn
+        )
         request = RiskEvaluateRequest(
             event_id=uuid4(),
             application_id=body.application_id,
             user_id=user_id,
             timestamp=datetime.now(timezone.utc),
             ip_address=body.ip_address,
-            asn=body.asn,
-            country=body.country,
+            asn=signals.asn,
+            country=signals.country,
             device_type=body.device_type,
             os=body.os,
             browser=body.browser,

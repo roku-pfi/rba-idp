@@ -14,9 +14,10 @@ status / decisions live in the **`docs`** repo (`../docs`):
 - Decisions → `../docs/decisions/` (ADR-0012–0020)
 - Narrative → `../docs/devlog.md`
 
-**This slice is IdP-7:** groups with app-scoped `access` grants. Admin console
-at `/admin` (users, apps, groups, decisions, policy). Do **not** add
-OIDC/SAML/SCIM ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)).
+**This slice is Demo-1:** country/ASN on the hosted login path; travel rule
+lives in `rba-features` + the PDP. Do **not** add OIDC/SAML/SCIM
+([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)). Next is Demo-2
+(seed + scenario picker).
 
 ## Layout
 
@@ -30,8 +31,9 @@ src/rba_idp/
   services/login.py       # verify + group grant + PDP enforce + session/challenge
   services/admin.py       # directory + groups CRUD + proxy to audit/policy
   web/                    # hosted login + Vite admin build
+  geo.py                  # TEST-NET prefix → country/ASN + query override
 admin-ui/                 # React + Vite source (`npm run build`)
-tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.py test_groups.py
+tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.py test_groups.py test_geo.py
 ```
 
 ## Guardrails

@@ -56,6 +56,31 @@ def test_hosted_login_uses_forwarded_ip(client: TestClient) -> None:
     resp = client.get("/login", headers={"x-forwarded-for": "198.51.100.20, 10.0.0.1"})
     boot = _boot(resp.text)
     assert boot["ip_address"] == "198.51.100.20"
+    assert boot["country"] == "DE"
+    assert boot["asn"] == "3320"
+
+
+def test_hosted_login_country_override(client: TestClient) -> None:
+    resp = client.get(
+        "/login",
+        params={"country": "jp", "asn": "AS2516"},
+        headers={"x-forwarded-for": "203.0.113.10"},
+    )
+    boot = _boot(resp.text)
+    assert boot["ip_address"] == "203.0.113.10"
+    assert boot["country"] == "JP"
+    assert boot["asn"] == "2516"
+
+
+def test_hosted_login_junk_override_falls_back_to_prefix(client: TestClient) -> None:
+    resp = client.get(
+        "/login",
+        params={"country": "Argentina", "asn": "nope"},
+        headers={"x-forwarded-for": "203.0.113.10"},
+    )
+    boot = _boot(resp.text)
+    assert boot["country"] == "AR"
+    assert boot["asn"] == "7303"
 
 
 def test_static_assets(client: TestClient) -> None:
@@ -66,6 +91,7 @@ def test_static_assets(client: TestClient) -> None:
     assert "RBA Identity" in css.text or "accent" in css.text
     assert "POST" in js.text
     assert "/login" in js.text
+    assert "boot.country" in js.text
     assert "/mfa/verify" in js.text
     assert "ACCESS_DENIED" in js.text
 

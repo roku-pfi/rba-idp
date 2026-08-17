@@ -236,6 +236,8 @@
           password: document.getElementById("password").value,
           application_id: boot.application_id,
           ip_address: boot.ip_address,
+          country: boot.country,
+          asn: boot.asn,
           ...deviceHints(navigator.userAgent || ""),
         }),
       });
