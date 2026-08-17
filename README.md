@@ -4,9 +4,10 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**Demo-2:** thin callback (`redirect_uri` + `POST /callback/token`) so
+**Demo-3:** thin callback (`redirect_uri` + `POST /callback/token`) so
 `rba-demo-banking` can return after `AUTHENTICATED`. Country/ASN on hosted
-login (`geo.py` TEST-NET prefixes + `?country=` / `?asn=` override). Travel
+login (`geo.py` TEST-NET prefixes + `?country=` / `?asn=` override). Presenter
+walkthrough is on the bank (`/walkthrough`), not this origin. Travel
 rule is in `rba-features` / the PDP, not here.
 Hosted login at `GET /login`; admin console at `GET /admin`. No OIDC/SAML/SCIM
 ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),

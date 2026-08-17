@@ -14,10 +14,10 @@ status / decisions live in the **`docs`** repo (`../docs`):
 - Decisions → `../docs/decisions/` (ADR-0012–0020)
 - Narrative → `../docs/devlog.md`
 
-This slice is Demo-2: thin `redirect_uri` callback for `rba-demo-banking`.
+This slice is Demo-3-ready: thin `redirect_uri` callback for `rba-demo-banking`.
 Travel rule stays in `rba-features` + the PDP. Do **not** add OIDC/SAML/SCIM
-([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)). Next is Demo-3
-(presenter scenario control on the bank).
+([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)). Next is Demo-4
+(WebAuthn). Presenter walkthrough lives on the bank (`/walkthrough`), not here.
 
 ## Layout
 
