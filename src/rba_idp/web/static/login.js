@@ -46,48 +46,6 @@
     el.textContent = message;
   }
 
-  function renderDecision(container, body) {
-    container.replaceChildren();
-    if (!body || (!body.action && !body.reasons?.length)) return;
-
-    const heading = document.createElement("h2");
-    heading.textContent = "Why this decision";
-    container.append(heading);
-
-    const meta = document.createElement("p");
-    if (body.risk_level) {
-      const badge = document.createElement("span");
-      badge.className = `badge ${body.risk_level}`;
-      badge.textContent = body.risk_level;
-      meta.append(badge);
-    }
-    const bits = [];
-    if (body.action) bits.push(body.action);
-    if (typeof body.risk_score === "number") {
-      bits.push(`score ${body.risk_score.toFixed(2)}`);
-    }
-    meta.append(document.createTextNode(bits.join(" · ")));
-    container.append(meta);
-
-    if (body.reasons?.length) {
-      const list = document.createElement("ul");
-      list.className = "reasons";
-      body.reasons.forEach((reason) => {
-        const item = document.createElement("li");
-        const detail = reason.detail || reason.code;
-        item.append(document.createTextNode(detail));
-        if (reason.signal) {
-          const sig = document.createElement("div");
-          sig.className = "signal";
-          sig.textContent = reason.signal;
-          item.append(sig);
-        }
-        list.append(item);
-      });
-      container.append(list);
-    }
-  }
-
   function storeSession(token) {
     sessionStorage.setItem(SESSION_KEY, token);
   }
@@ -127,7 +85,6 @@
       return;
     }
     if (outcome === "BLOCKED") {
-      renderDecision(document.getElementById("blocked-decision"), body);
       show("blocked");
       return;
     }
@@ -136,13 +93,12 @@
       const lede = document.getElementById("challenge-lede");
       if (outcome === "REAUTH_REQUIRED") {
         title.textContent = "Confirm it’s you";
-        lede.textContent = "Risk is high enough that this IdP wants a re-authentication step.";
+        lede.textContent = "This sign-in needs an extra confirmation step.";
       } else {
         title.textContent = "Verify it’s you";
-        lede.textContent = "The PDP asked for MFA before issuing a session.";
+        lede.textContent = "This sign-in needs a step-up before a session is issued.";
       }
       document.getElementById("form-mfa").dataset.challengeId = body.challenge_id;
-      renderDecision(document.getElementById("challenge-decision"), body);
       setError("mfa-error", "");
       show("challenge");
       document.getElementById("otp").focus();
@@ -150,6 +106,10 @@
     }
     if (outcome === "AUTHENTICATED" && body.session?.token) {
       storeSession(body.session.token);
+      if (body.redirect_to) {
+        window.location.assign(body.redirect_to);
+        return;
+      }
       if (boot.next && boot.next.startsWith("/admin")) {
         window.location.assign(boot.next);
         return;
@@ -181,11 +141,11 @@
       dd.textContent = v;
       facts.append(dt, dd);
     });
-    renderDecision(document.getElementById("session-decision"), body);
     show("session");
   }
 
   async function restoreSession() {
+    if (boot.redirect_uri) return false;
     const token = sessionStorage.getItem(SESSION_KEY);
     if (!token) return false;
     const resp = await fetch("/session", { headers: authHeader() });
@@ -228,18 +188,20 @@
     const submit = document.getElementById("login-submit");
     submit.disabled = true;
     try {
+      const payload = {
+        email: document.getElementById("email").value,
+        password: document.getElementById("password").value,
+        application_id: boot.application_id,
+        ip_address: boot.ip_address,
+        country: boot.country,
+        asn: boot.asn,
+        ...deviceHints(navigator.userAgent || ""),
+      };
+      if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
       const resp = await fetch("/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email: document.getElementById("email").value,
-          password: document.getElementById("password").value,
-          application_id: boot.application_id,
-          ip_address: boot.ip_address,
-          country: boot.country,
-          asn: boot.asn,
-          ...deviceHints(navigator.userAgent || ""),
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await parseJson(resp);
       if (resp.status === 400) {
@@ -260,13 +222,15 @@
     const submit = document.getElementById("mfa-submit");
     submit.disabled = true;
     try {
+      const payload = {
+        challenge_id: event.currentTarget.dataset.challengeId,
+        code: document.getElementById("otp").value,
+      };
+      if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
       const resp = await fetch("/mfa/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          challenge_id: event.currentTarget.dataset.challengeId,
-          code: document.getElementById("otp").value,
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await parseJson(resp);
       if (resp.status === 400) {

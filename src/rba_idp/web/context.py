@@ -7,7 +7,7 @@ from fastapi import Request
 from rba_idp.config import Settings
 from rba_idp.db.models import Application
 from rba_idp.db.session import session_scope
-from rba_idp.geo import resolve_login_signals
+from rba_idp.geo import resolve_login_signals, scored_ip
 
 
 def client_ip(request: Request) -> str:
@@ -31,18 +31,25 @@ def hosted_boot(
     app_id = (application_id or settings.seed_application_id).strip()
     name: str | None = None
     unknown = True
+    registered: str | None = None
     factory = request.app.state.session_factory
     with session_scope(factory) as session:
         row = session.get(Application, app_id)
         if row is not None and row.enabled:
             name = row.name
             unknown = False
-    ip = client_ip(request)
+            registered = row.redirect_uri
+    ip = scored_ip(client_ip(request))
     signals = resolve_login_signals(
         ip,
         country=request.query_params.get("country"),
         asn=request.query_params.get("asn"),
     )
+    requested = request.query_params.get("redirect_uri")
+    if registered and (not requested or requested == registered):
+        redirect_uri = registered
+    else:
+        redirect_uri = None
     return {
         "application_id": app_id,
         "application_name": name,
@@ -51,6 +58,7 @@ def hosted_boot(
         "country": signals.country,
         "asn": signals.asn,
         "next": _safe_next(request.query_params.get("next")),
+        "redirect_uri": redirect_uri,
     }
 
 

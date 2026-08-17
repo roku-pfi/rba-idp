@@ -34,6 +34,7 @@ def test_hosted_login_page(client: TestClient) -> None:
     assert boot["application_name"] == "Demo banking app"
     assert boot["unknown_application"] is False
     assert boot["ip_address"]
+    assert boot["redirect_uri"] == "http://localhost:8002/callback"
 
 
 def test_root_serves_the_same_hosted_page(client: TestClient) -> None:
@@ -83,6 +84,22 @@ def test_hosted_login_junk_override_falls_back_to_prefix(client: TestClient) -> 
     assert boot["asn"] == "7303"
 
 
+def test_hosted_login_loopback_uses_home_testnet(client: TestClient) -> None:
+    boot = _boot(client.get("/login").text)
+    assert boot["ip_address"] == "203.0.113.10"
+    assert boot["country"] == "AR"
+    assert boot["asn"] == "7303"
+
+
+def test_hosted_login_rejects_unknown_redirect_uri(client: TestClient) -> None:
+    boot = _boot(
+        client.get(
+            "/login", params={"redirect_uri": "http://evil.example/callback"}
+        ).text
+    )
+    assert boot["redirect_uri"] is None
+
+
 def test_static_assets(client: TestClient) -> None:
     css = client.get("/static/login.css")
     js = client.get("/static/login.js")
@@ -94,6 +111,7 @@ def test_static_assets(client: TestClient) -> None:
     assert "boot.country" in js.text
     assert "/mfa/verify" in js.text
     assert "ACCESS_DENIED" in js.text
+    assert "redirect_to" in js.text
 
 
 def test_json_login_still_works_alongside_html(client: TestClient) -> None:

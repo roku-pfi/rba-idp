@@ -16,6 +16,8 @@ _PREFIXES: tuple[tuple[ipaddress.IPv4Network, str, str], ...] = (
     (ipaddress.ip_network("198.51.100.0/24"), "DE", "3320"),  # TEST-NET-2
 )
 
+HOME_IP = "203.0.113.10"
+
 
 @dataclass(frozen=True)
 class LoginSignals:
@@ -53,6 +55,32 @@ def lookup_ip(ip: str) -> LoginSignals:
         if addr in network:
             return LoginSignals(country=country, asn=asn)
     return LoginSignals(country=None, asn=None)
+
+
+def is_unroutable(ip: str) -> bool:
+    """True for loopback / RFC1918 / link-local — a laptop or cluster peer.
+
+    Do not use ``IPv4Address.is_private``: it includes RFC 5737 TEST-NETs,
+    which this module uses as demo geo stand-ins.
+    """
+    try:
+        addr = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return True
+    if not isinstance(addr, ipaddress.IPv4Address):
+        return True
+    return bool(
+        addr.is_loopback
+        or addr.is_link_local
+        or addr in ipaddress.ip_network("10.0.0.0/8")
+        or addr in ipaddress.ip_network("172.16.0.0/12")
+        or addr in ipaddress.ip_network("192.168.0.0/16")
+    )
+
+
+def scored_ip(ip: str) -> str:
+    """Private peers score as the demo home TEST-NET so a usual laptop login can ALLOW."""
+    return HOME_IP if is_unroutable(ip) else ip.strip()
 
 
 def resolve_login_signals(

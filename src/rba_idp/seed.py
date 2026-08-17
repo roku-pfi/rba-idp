@@ -13,15 +13,26 @@ SEED_BANKING_GROUP_ID = "grp_banking"
 SEED_OPERATORS_GROUP_ID = "grp_operators"
 
 
-def _ensure_application(session: Session, application_id: str, name: str) -> None:
-    if session.get(Application, application_id) is None:
+def _ensure_application(
+    session: Session,
+    application_id: str,
+    name: str,
+    *,
+    redirect_uri: str | None = None,
+) -> None:
+    row = session.get(Application, application_id)
+    if row is None:
         session.add(
             Application(
                 application_id=application_id,
                 name=name,
                 enabled=True,
+                redirect_uri=redirect_uri,
             )
         )
+        return
+    if redirect_uri is not None:
+        row.redirect_uri = redirect_uri
 
 
 def _ensure_user(
@@ -79,7 +90,10 @@ def _ensure_grant(
 
 def seed_identity(session: Session, settings: Settings) -> None:
     _ensure_application(
-        session, settings.seed_application_id, settings.seed_application_name
+        session,
+        settings.seed_application_id,
+        settings.seed_application_name,
+        redirect_uri=settings.seed_application_redirect_uri or None,
     )
     _ensure_application(
         session,

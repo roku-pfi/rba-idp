@@ -28,6 +28,7 @@ def make_engine(url: str, *, echo: bool = False, memory: bool = False) -> Engine
 def create_tables(engine: Engine) -> None:
     Base.metadata.create_all(engine)
     _ensure_is_admin_column(engine)
+    _ensure_redirect_uri_column(engine)
 
 
 def _ensure_is_admin_column(engine: Engine) -> None:
@@ -43,6 +44,18 @@ def _ensure_is_admin_column(engine: Engine) -> None:
         conn.execute(
             text(f"ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT {default}")
         )
+
+
+def _ensure_redirect_uri_column(engine: Engine) -> None:
+    """Additive Demo-2 column; create_all does not ALTER existing Postgres tables."""
+    inspector = inspect(engine)
+    if "applications" not in inspector.get_table_names():
+        return
+    cols = {c["name"] for c in inspector.get_columns("applications")}
+    if "redirect_uri" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE applications ADD COLUMN redirect_uri VARCHAR(512)"))
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:

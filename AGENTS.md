@@ -14,10 +14,10 @@ status / decisions live in the **`docs`** repo (`../docs`):
 - Decisions → `../docs/decisions/` (ADR-0012–0020)
 - Narrative → `../docs/devlog.md`
 
-**This slice is Demo-1:** country/ASN on the hosted login path; travel rule
-lives in `rba-features` + the PDP. Do **not** add OIDC/SAML/SCIM
-([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)). Next is Demo-2
-(seed + scenario picker).
+This slice is Demo-2: thin `redirect_uri` callback for `rba-demo-banking`.
+Travel rule stays in `rba-features` + the PDP. Do **not** add OIDC/SAML/SCIM
+([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)). Next is Demo-3
+(presenter scenario control on the bank).
 
 ## Layout
 

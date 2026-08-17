@@ -1,13 +1,17 @@
-"""Password verify, PDP enforce, session on ALLOW, mock MFA/reauth."""
+"""Password verify, PDP enforce, session on ALLOW, mock MFA/reauth, thin callback."""
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from rba_contracts import (
     Action,
+    CallbackTokenRequest,
+    CallbackTokenResponse,
     LoginOutcome,
     LoginRequest,
     LoginResponse,
@@ -25,9 +29,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from rba_idp.config import Settings
-from rba_idp.db.models import Application, GroupAppGrant, GroupMembership, IdpSession, MfaChallenge, User
+from rba_idp.db.models import (
+    Application,
+    AuthCode,
+    GroupAppGrant,
+    GroupMembership,
+    IdpSession,
+    MfaChallenge,
+    User,
+)
 from rba_idp.db.session import session_scope
-from rba_idp.geo import resolve_login_signals
+from rba_idp.geo import resolve_login_signals, scored_ip
 from rba_idp.passwords import verify_password
 from rba_idp.pdp import PdpClient, PdpUnavailable
 from rba_idp.tokens import (
@@ -45,6 +57,22 @@ def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def match_redirect_uri(registered: str | None, requested: str | None) -> str | None:
+    """Exact match against the registered URI. No registered URI → no off-IdP redirect."""
+    if not registered:
+        return None
+    if requested is None or requested == "":
+        return registered
+    return registered if requested == registered else None
+
+
+def append_query(uri: str, **params: str) -> str:
+    parts = urlparse(uri)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.update(params)
+    return urlunparse(parts._replace(query=urlencode(query)))
 
 
 def user_has_app_access(session: Session, user_id: str, application_id: str) -> bool:
@@ -82,6 +110,7 @@ class LoginService:
             app = session.get(Application, body.application_id)
             if app is None or not app.enabled:
                 raise HTTPException(status_code=400, detail="unknown application")
+            registered_redirect = app.redirect_uri
 
             user = session.scalar(select(User).where(User.email == email))
             if user is None or not user.enabled:
@@ -99,15 +128,14 @@ class LoginService:
                     detail=ACCESS_DENIED_DETAIL,
                 )
 
-        signals = resolve_login_signals(
-            body.ip_address, country=body.country, asn=body.asn
-        )
+        ip = scored_ip(body.ip_address)
+        signals = resolve_login_signals(ip, country=body.country, asn=body.asn)
         request = RiskEvaluateRequest(
             event_id=uuid4(),
             application_id=body.application_id,
             user_id=user_id,
             timestamp=datetime.now(timezone.utc),
-            ip_address=body.ip_address,
+            ip_address=ip,
             asn=signals.asn,
             country=signals.country,
             device_type=body.device_type,
@@ -121,7 +149,13 @@ class LoginService:
         except PdpUnavailable as exc:
             raise HTTPException(status_code=503, detail="PDP unavailable") from exc
 
-        return self._enforce(user_id, body.application_id, decision)
+        return self._enforce(
+            user_id,
+            body.application_id,
+            decision,
+            requested_redirect=body.redirect_uri,
+            registered_redirect=registered_redirect,
+        )
 
     def verify_mfa(self, body: MfaVerifyRequest) -> LoginResponse:
         now = datetime.now(timezone.utc)
@@ -153,9 +187,19 @@ class LoginService:
                     detail=ACCESS_DENIED_DETAIL,
                 )
 
+            app = session.get(Application, challenge.application_id)
+            registered_redirect = app.redirect_uri if app is not None else None
             challenge.consumed_at = now
             token = self._persist_session(
                 session, challenge.user_id, challenge.application_id, now
+            )
+            redirect_to = self._persist_callback(
+                session,
+                user_id=challenge.user_id,
+                application_id=challenge.application_id,
+                raw_token=token.token,
+                requested_redirect=body.redirect_uri,
+                registered_redirect=registered_redirect,
             )
             return LoginResponse(
                 outcome=LoginOutcome.AUTHENTICATED,
@@ -166,6 +210,36 @@ class LoginService:
                 risk_level=RiskLevel(challenge.risk_level),
                 reasons=[Reason.model_validate(item) for item in challenge.reasons],
                 session=token,
+                redirect_to=redirect_to,
+            )
+
+    def exchange_code(self, body: CallbackTokenRequest) -> CallbackTokenResponse:
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            row = session.get(AuthCode, hash_session_token(body.code))
+            if (
+                row is None
+                or row.consumed_at is not None
+                or _as_utc(row.expires_at) <= now
+            ):
+                raise HTTPException(status_code=400, detail="unknown or expired code")
+            stored = session.get(IdpSession, hash_session_token(row.session_token))
+            user = session.get(User, row.user_id)
+            if stored is None or _as_utc(stored.expires_at) <= now:
+                raise HTTPException(status_code=400, detail="unknown or expired code")
+            if user is None or not user.enabled:
+                raise HTTPException(status_code=400, detail="unknown or expired code")
+            row.consumed_at = now
+            return CallbackTokenResponse(
+                session=SessionToken(
+                    token=row.session_token, expires_at=_as_utc(stored.expires_at)
+                ),
+                user=UserPublic(
+                    user_id=user.user_id,
+                    email=user.email,
+                    created_at=_as_utc(user.created_at),
+                    is_admin=bool(user.is_admin),
+                ),
             )
 
     def get_session(self, authorization: str | None) -> SessionResponse:
@@ -194,11 +268,20 @@ class LoginService:
         user_id: str,
         application_id: str,
         decision: RiskEvaluateResponse,
+        *,
+        requested_redirect: str | None,
+        registered_redirect: str | None,
     ) -> LoginResponse:
         session_token: SessionToken | None = None
         challenge_id: UUID | None = None
+        redirect_to: str | None = None
         if decision.action == Action.ALLOW:
-            session_token = self._create_session(user_id, application_id)
+            session_token, redirect_to = self._create_session_with_callback(
+                user_id,
+                application_id,
+                requested_redirect=requested_redirect,
+                registered_redirect=registered_redirect,
+            )
         elif decision.action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE):
             challenge_id = self._create_challenge(user_id, application_id, decision)
 
@@ -212,12 +295,29 @@ class LoginService:
             reasons=decision.reasons,
             session=session_token,
             challenge_id=challenge_id,
+            redirect_to=redirect_to,
         )
 
-    def _create_session(self, user_id: str, application_id: str) -> SessionToken:
+    def _create_session_with_callback(
+        self,
+        user_id: str,
+        application_id: str,
+        *,
+        requested_redirect: str | None,
+        registered_redirect: str | None,
+    ) -> tuple[SessionToken, str | None]:
         now = datetime.now(timezone.utc)
         with session_scope(self._session_factory) as session:
-            return self._persist_session(session, user_id, application_id, now)
+            token = self._persist_session(session, user_id, application_id, now)
+            redirect_to = self._persist_callback(
+                session,
+                user_id=user_id,
+                application_id=application_id,
+                raw_token=token.token,
+                requested_redirect=requested_redirect,
+                registered_redirect=registered_redirect,
+            )
+            return token, redirect_to
 
     def _persist_session(
         self,
@@ -237,6 +337,33 @@ class LoginService:
             )
         )
         return SessionToken(token=raw, expires_at=expires_at)
+
+    def _persist_callback(
+        self,
+        session,
+        *,
+        user_id: str,
+        application_id: str,
+        raw_token: str,
+        requested_redirect: str | None,
+        registered_redirect: str | None,
+    ) -> str | None:
+        target = match_redirect_uri(registered_redirect, requested_redirect)
+        if target is None:
+            return None
+        code = secrets.token_urlsafe(32)
+        now = datetime.now(timezone.utc)
+        session.add(
+            AuthCode(
+                code_hash=hash_session_token(code),
+                session_token=raw_token,
+                user_id=user_id,
+                application_id=application_id,
+                redirect_uri=target,
+                expires_at=now + timedelta(seconds=self._settings.callback_ttl_seconds),
+            )
+        )
+        return append_query(target, code=code)
 
     def _create_challenge(
         self,

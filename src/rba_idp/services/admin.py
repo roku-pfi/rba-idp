@@ -60,6 +60,7 @@ def _app_public(row: Application) -> ApplicationPublic:
         name=row.name,
         enabled=row.enabled,
         created_at=_as_utc(row.created_at),
+        redirect_uri=row.redirect_uri,
     )
 
 
@@ -196,6 +197,7 @@ class AdminService:
                 application_id=body.application_id,
                 name=body.name,
                 enabled=True,
+                redirect_uri=body.redirect_uri,
                 created_at=datetime.now(timezone.utc),
             )
             session.add(row)
@@ -214,6 +216,8 @@ class AdminService:
                 row.name = body.name
             if body.enabled is not None:
                 row.enabled = body.enabled
+            if body.redirect_uri is not None:
+                row.redirect_uri = body.redirect_uri or None
             session.flush()
             session.refresh(row)
             return _app_public(row)

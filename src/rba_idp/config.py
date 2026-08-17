@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     session_ttl_seconds: int = 8 * 3600
     challenge_ttl_seconds: int = 5 * 60
+    callback_ttl_seconds: int = 2 * 60
     mock_otp_code: str = "000000"
 
     seed_user_id: str = "usr_demo"
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
     seed_password: str = "demo-password"
     seed_application_id: str = "demo-banking-app"
     seed_application_name: str = "Demo banking app"
+    seed_application_redirect_uri: str = "http://localhost:8002/callback"
 
     seed_admin_user_id: str = "usr_admin"
     seed_admin_email: str = "admin@example.com"

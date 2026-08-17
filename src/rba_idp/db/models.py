@@ -21,6 +21,7 @@ class Application(Base):
     application_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    redirect_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -115,6 +116,23 @@ class MfaChallenge(Base):
     risk_score: Mapped[float] = mapped_column(Float, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
     reasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AuthCode(Base):
+    """One-time callback code bound to an issued session (Demo-2, not OIDC)."""
+
+    __tablename__ = "auth_codes"
+
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_token: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    application_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(String(512), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

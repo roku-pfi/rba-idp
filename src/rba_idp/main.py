@@ -16,6 +16,8 @@ from rba_contracts import (
     AddGroupMemberRequest,
     AdminUserPublic,
     ApplicationPublic,
+    CallbackTokenRequest,
+    CallbackTokenResponse,
     CreateApplicationRequest,
     CreateGroupGrantRequest,
     CreateGroupRequest,
@@ -103,8 +105,9 @@ def create_app(
             session_factory, login_service, policy, audit
         )
         logger.info(
-            "rba-idp ready (IdP-7: groups). seed app=%s admin=%s pdp=%s audit=%s",
+            "rba-idp ready (Demo-2 callback). seed app=%s redirect=%s admin=%s pdp=%s audit=%s",
             settings.seed_application_id,
+            settings.seed_application_redirect_uri,
             settings.seed_admin_email,
             settings.pdp_base_url,
             settings.audit_base_url,
@@ -117,7 +120,7 @@ def create_app(
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.3.0",
+        version="0.4.0",
         lifespan=lifespan,
     )
     templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -178,6 +181,16 @@ def create_app(
     ) -> Response:
         _run(request, lambda svc: svc.logout(authorization))
         return Response(status_code=204)
+
+    @app.post(
+        "/callback/token",
+        response_model=CallbackTokenResponse,
+        response_model_exclude_none=True,
+    )
+    def exchange_callback(
+        body: CallbackTokenRequest, request: Request
+    ) -> CallbackTokenResponse:
+        return _run(request, lambda svc: svc.exchange_code(body))
 
     def _admin(request: Request) -> AdminService:
         return request.app.state.admin_service

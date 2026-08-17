@@ -129,6 +129,10 @@ def test_admin_applications(client: TestClient) -> None:
     ids = {row["application_id"] for row in listed.json()}
     assert "demo-banking-app" in ids
     assert "idp-admin-console" in ids
+    banking = next(
+        row for row in listed.json() if row["application_id"] == "demo-banking-app"
+    )
+    assert banking["redirect_uri"] == "http://localhost:8002/callback"
 
     created = client.post(
         "/admin/api/applications",

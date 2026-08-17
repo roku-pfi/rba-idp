@@ -35,7 +35,6 @@
       <section id="panel-challenge" hidden>
         <h1 id="challenge-title">Verify it’s you</h1>
         <p class="lede" id="challenge-lede">This sign-in needs a step-up.</p>
-        <div class="decision" id="challenge-decision"></div>
         <form id="form-mfa">
           <label for="otp">One-time code</label>
           <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="8">
@@ -48,8 +47,7 @@
 
       <section id="panel-blocked" hidden>
         <h1>Sign-in blocked</h1>
-        <p class="lede">The risk policy rejected this attempt. No session was created.</p>
-        <div class="decision" id="blocked-decision"></div>
+        <p class="lede">This sign-in was rejected. No session was created.</p>
         <p class="back"><a href="#" id="blocked-restart">Try again</a></p>
       </section>
 
@@ -63,7 +61,6 @@
         <h1>Signed in</h1>
         <p class="lede" id="session-lede"></p>
         <dl class="facts" id="session-facts"></dl>
-        <div class="decision" id="session-decision"></div>
         <form id="form-logout">
           <button type="submit" class="secondary" id="logout-submit">Sign out</button>
         </form>

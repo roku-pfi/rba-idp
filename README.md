@@ -4,17 +4,19 @@ Thesis-scale **IdP** (Authentik/Auth0-shaped **shell**). The thesis core is RBA
 (`rba-decision-service`); this service is the **PEP** that calls it and
 enforces the action.
 
-**Demo-1:** country/ASN on hosted login (`geo.py` TEST-NET prefixes + `?country=` /
-`?asn=` override). Travel rule is in `rba-features` / the PDP, not here.
+**Demo-2:** thin callback (`redirect_uri` + `POST /callback/token`) so
+`rba-demo-banking` can return after `AUTHENTICATED`. Country/ASN on hosted
+login (`geo.py` TEST-NET prefixes + `?country=` / `?asn=` override). Travel
+rule is in `rba-features` / the PDP, not here.
 Hosted login at `GET /login`; admin console at `GET /admin`. No OIDC/SAML/SCIM
 ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md),
 [ADR-0019](../docs/decisions/0019-groups-grant-app-access.md),
 [ADR-0022](../docs/decisions/0022-product-demo-over-gitops.md)).
 
-Package version: **0.2.0**. Pins `rba-contracts` ≥ 0.4.0.
+Package version: **0.3.0**. Pins `rba-contracts` ≥ 0.5.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
-> ADRs: 0012–0019. AI: [`AGENTS.md`](AGENTS.md).
+> ADRs: 0012–0026. AI: [`AGENTS.md`](AGENTS.md).
 
 ## Request path
 
@@ -183,7 +185,7 @@ Written on every boot if missing (`seed.py`):
 
 | | |
 |---|---|
-| Application | `demo-banking-app` (Demo banking app) |
+| Application | `demo-banking-app` (Demo banking app), `redirect_uri` `http://localhost:8002/callback` |
 | Application | `idp-admin-console` (IdP admin console) |
 | User | `demo@example.com` / `demo-password` (`usr_demo`, not admin) |
 | User | `admin@example.com` / `admin-password` (`usr_admin`, `is_admin`) |
@@ -208,6 +210,7 @@ Matches `rba-contracts` IdP login examples.
 | `SEED_USER_ID` / `SEED_EMAIL` / `SEED_PASSWORD` | `usr_demo` / `demo@example.com` / `demo-password` | |
 | `SEED_ADMIN_*` | `usr_admin` / `admin@example.com` / `admin-password` | |
 | `SEED_APPLICATION_ID` / `SEED_APPLICATION_NAME` | `demo-banking-app` / `Demo banking app` | |
+| `SEED_APPLICATION_REDIRECT_URI` | `http://localhost:8002/callback` | k8s: `http://demo.localhost:8080/callback` |
 | `SEED_ADMIN_APPLICATION_ID` | `idp-admin-console` | |
 | `HOST` / `PORT` | `0.0.0.0` / `8001` | |
 
@@ -227,5 +230,6 @@ Matches `rba-contracts` IdP login examples.
 
 ## Status
 
-IdP-7 groups / app-scoped permissions. Local k8s via `../rba-infra` Helm
-(K8s-1). Observability: `../rba-infra` Grafana `/grafana` (K8s-2). Roadmap: `../docs/plans/status.md`.
+IdP-7 groups / app-scoped permissions. Demo-2 thin callback. Local k8s via
+`../rba-infra` Helm (K8s-1 + demo chart). Observability: `../rba-infra`
+Grafana `/grafana` (K8s-2). Roadmap: `../docs/plans/status.md`.
