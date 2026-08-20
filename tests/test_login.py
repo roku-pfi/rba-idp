@@ -10,7 +10,8 @@ from rba_contracts import Action, LoginOutcome, RiskLevel
 
 from rba_idp.db.models import IdpSession
 from rba_idp.tokens import hash_session_token
-from tests.helpers import LOGIN, REASON, StubPdp, client_for
+from tests.helpers import LOGIN, MOCK_OTP, REASON, StubPdp, client_for
+from tests.helpers import test_settings as make_settings
 
 
 def test_healthz(client: TestClient) -> None:
@@ -110,14 +111,44 @@ def test_pdp_action_maps_to_login_outcome(
         assert "challenge_id" not in body
 
 
-def test_wrong_password_is_invalid_credentials_without_pdp(
+def test_wrong_password_is_reported_to_the_pdp_but_not_enforced(
     client: TestClient, pdp: StubPdp
 ) -> None:
+    """ADR-0027: the attempt is recorded; the answer is byte-for-byte unchanged.
+
+    Reporting is what makes `failed_logins_last_24h` real. It must not leak the
+    user's existence, issue a session, or let the PDP's decision touch the
+    response — a failed password is not an authentication to enforce.
+    """
     payload = {**LOGIN, "password": "wrong-password"}
     resp = client.post("/login", json=payload)
     assert resp.status_code == 200
     assert resp.json() == {"outcome": LoginOutcome.INVALID_CREDENTIALS.value}
-    assert pdp.calls == []
+
+    assert len(pdp.calls) == 1
+    call = pdp.calls[0]
+    assert call.login_successful is False
+    assert call.user_id == "usr_demo"
+    assert call.application_id == "demo-banking-app"
+    assert call.country == "AR"
+
+
+def test_failed_login_report_can_be_disabled(pdp: StubPdp) -> None:
+    settings = make_settings(report_failed_logins=False)
+    with client_for(pdp, settings=settings) as client:
+        resp = client.post("/login", json={**LOGIN, "password": "wrong-password"})
+        assert resp.json() == {"outcome": LoginOutcome.INVALID_CREDENTIALS.value}
+        assert pdp.calls == []
+
+
+def test_wrong_password_survives_a_pdp_outage() -> None:
+    """Telemetry must never turn a wrong password into a 503 (enforcement still does)."""
+    from tests.helpers import FailingPdp
+
+    with client_for(FailingPdp()) as client:
+        resp = client.post("/login", json={**LOGIN, "password": "wrong-password"})
+        assert resp.status_code == 200
+        assert resp.json() == {"outcome": LoginOutcome.INVALID_CREDENTIALS.value}
 
 
 def test_unknown_user_is_invalid_credentials_without_pdp(
@@ -140,13 +171,74 @@ def test_unknown_application_is_400_without_pdp(client: TestClient, pdp: StubPdp
     assert pdp.calls == []
 
 
-def test_pdp_unavailable_is_503() -> None:
+def test_pdp_unavailable_degrades_to_mfa() -> None:
+    """RF-10 / RNF-03: an outage must not become open access or a mass lockout.
+
+    A 503 here would lock out every legitimate user for the length of the
+    outage. The password was already verified, so the only safe answer left is
+    to ask for a second factor.
+    """
     from tests.helpers import FailingPdp
 
     with client_for(FailingPdp()) as client:
         resp = client.post("/login", json=LOGIN)
-    assert resp.status_code == 503
-    assert resp.json()["detail"] == "PDP unavailable"
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["outcome"] == LoginOutcome.MFA_REQUIRED.value
+    assert body["action"] == Action.REQUIRE_MFA.value
+    UUID(body["challenge_id"])
+    assert "session" not in body
+
+    # There is no score to report, and the reason says exactly that.
+    assert body["risk_score"] == 0.0
+    assert [r["code"] for r in body["reasons"]] == ["pdp_unavailable"]
+
+
+def test_pdp_unavailable_never_issues_a_session() -> None:
+    """The negative half: degrading must not hand out access."""
+    from tests.helpers import FailingPdp
+
+    with client_for(FailingPdp()) as client:
+        resp = client.post("/login", json=LOGIN)
+        body = resp.json()
+        assert "session" not in body
+        assert "redirect_to" not in body
+
+        # And the challenge is a real one — completing it is what grants access.
+        verify = client.post(
+            "/mfa/verify",
+            json={"challenge_id": body["challenge_id"], "code": MOCK_OTP},
+        )
+    assert verify.status_code == 200
+    assert verify.json()["outcome"] == LoginOutcome.AUTHENTICATED.value
+
+
+def test_pdp_unavailable_action_is_configurable_but_cannot_open_access() -> None:
+    """The type is the guarantee: ALLOW and BLOCK are not expressible."""
+    import pydantic
+    import pytest
+
+    from rba_idp.config import Settings
+
+    assert Settings().pdp_unavailable_action == "REQUIRE_MFA"
+    assert Settings(pdp_unavailable_action="REAUTHENTICATE").pdp_unavailable_action == (
+        "REAUTHENTICATE"
+    )
+    for forbidden in ("ALLOW", "BLOCK"):
+        with pytest.raises(pydantic.ValidationError):
+            Settings(pdp_unavailable_action=forbidden)
+
+
+def test_pdp_unavailable_still_rejects_a_wrong_password() -> None:
+    """Degrading is for *authenticated* users. A wrong password is still a 401-shaped no."""
+    from tests.helpers import FailingPdp
+
+    with client_for(FailingPdp()) as client:
+        resp = client.post("/login", json={**LOGIN, "password": "not-the-password"})
+
+    assert resp.status_code == 200
+    assert resp.json() == {"outcome": LoginOutcome.INVALID_CREDENTIALS.value}
 
 
 def test_password_never_reaches_the_pdp(client: TestClient, pdp: StubPdp) -> None:

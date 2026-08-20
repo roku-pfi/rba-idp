@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -20,6 +21,19 @@ class Settings(BaseSettings):
 
     pdp_base_url: str = "http://localhost:8000"
     pdp_timeout_seconds: float = 2.0
+    # Report wrong-password attempts to the PDP so `failed_logins_last_24h` is
+    # real (ADR-0027). Off = the feature is permanently 0 in production.
+    report_failed_logins: bool = True
+
+    # RF-10 / RNF-03. When the PDP does not answer at all, the IdP still has to
+    # decide. Returning 503 would lock out every legitimate user for the length
+    # of the outage — the "bloqueo masivo" the requirement forbids — and letting
+    # everyone in is the other thing it forbids. So we degrade to a step-up.
+    #
+    # The type is the guarantee: ALLOW and BLOCK are not expressible here, so no
+    # configuration mistake can turn an outage into open access or a mass
+    # lockout.
+    pdp_unavailable_action: Literal["REQUIRE_MFA", "REAUTHENTICATE"] = "REQUIRE_MFA"
 
     session_ttl_seconds: int = 8 * 3600
     challenge_ttl_seconds: int = 5 * 60

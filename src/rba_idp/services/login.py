@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -9,6 +10,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from rba_contracts import (
+    FEATURE_SCHEMA_VERSION,
     Action,
     CallbackTokenRequest,
     CallbackTokenResponse,
@@ -57,6 +59,8 @@ from rba_idp.tokens import (
 )
 from rba_idp.webauthn import creation_options, request_options, verify_create, verify_get
 
+
+logger = logging.getLogger(__name__)
 
 ACCESS_DENIED_DETAIL = "user is not granted access to this application"
 
@@ -114,6 +118,7 @@ class LoginService:
 
     def login(self, body: LoginRequest) -> LoginResponse:
         email = body.email.strip().lower()
+        wrong_password_for: str | None = None
         with session_scope(self._session_factory) as session:
             app = session.get(Application, body.application_id)
             if app is None or not app.enabled:
@@ -126,18 +131,24 @@ class LoginService:
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
 
             if not verify_password(body.password, user.password_hash):
-                return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
-
-            user_id = user.user_id
-            if not user_has_app_access(session, user_id, body.application_id):
-                return LoginResponse(
-                    outcome=LoginOutcome.ACCESS_DENIED,
-                    user_id=user_id,
-                    detail=ACCESS_DENIED_DETAIL,
-                )
+                # Report it outside the DB session, then answer exactly as before.
+                wrong_password_for = user.user_id
+            else:
+                user_id = user.user_id
+                if not user_has_app_access(session, user_id, body.application_id):
+                    return LoginResponse(
+                        outcome=LoginOutcome.ACCESS_DENIED,
+                        user_id=user_id,
+                        detail=ACCESS_DENIED_DETAIL,
+                    )
 
         ip = scored_ip(body.ip_address)
         signals = resolve_login_signals(ip, country=body.country, asn=body.asn)
+
+        if wrong_password_for is not None:
+            self._report_failed_login(wrong_password_for, body, ip, signals)
+            return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+
         request = RiskEvaluateRequest(
             event_id=uuid4(),
             application_id=body.application_id,
@@ -155,7 +166,13 @@ class LoginService:
         try:
             decision = self._pdp.evaluate(request)
         except PdpUnavailable as exc:
-            raise HTTPException(status_code=503, detail="PDP unavailable") from exc
+            logger.warning(
+                "PDP unavailable, degrading to %s for user_id=%s: %s",
+                self._settings.pdp_unavailable_action,
+                user_id,
+                exc,
+            )
+            decision = self._degraded_decision(request.event_id)
 
         return self._enforce(
             user_id,
@@ -164,6 +181,91 @@ class LoginService:
             requested_redirect=body.redirect_uri,
             registered_redirect=registered_redirect,
         )
+
+    def _degraded_decision(self, event_id: UUID) -> RiskEvaluateResponse:
+        """Stand in for the PDP when it does not answer at all (RF-10 / RNF-03).
+
+        The PDP degrades to ``fallback_action`` when *its own* dependencies fail.
+        This is the case one level up: the PDP itself is unreachable, so there is
+        no score, no policy and no reasons to be had. Refusing the login would
+        lock out every legitimate user for the length of the outage; allowing it
+        would drop the control entirely. Both are named in RNF-03 as the wrong
+        answers, so we ask for a step-up instead.
+
+        ``fallback=True`` marks ``risk_score`` as non-informative — the number is
+        a placeholder, not a measurement — and is what the admin decision browser
+        keys on to show the login was not scored.
+
+        Note this decision is *not* written to the decision store: the store
+        lives behind the service that just failed to answer. It survives in the
+        IdP log and, when a challenge is issued, on the challenge row. Monitor
+        mode cannot apply here either — it is policy state, and policy lives in
+        the PDP that is not answering.
+        """
+        action = Action(self._settings.pdp_unavailable_action)
+        return RiskEvaluateResponse(
+            event_id=event_id,
+            risk_score=0.0,
+            risk_level=RiskLevel.HIGH,
+            action=action,
+            reasons=[
+                Reason(
+                    code="pdp_unavailable",
+                    signal="system",
+                    detail=(
+                        "risk engine did not respond; degraded to "
+                        f"{action.value} without a score"
+                    ),
+                )
+            ],
+            model_version="unavailable",
+            policy_version="unavailable",
+            feature_schema_version=FEATURE_SCHEMA_VERSION,
+            fallback=True,
+            scored_at=datetime.now(timezone.utc),
+        )
+
+    def _report_failed_login(
+        self,
+        user_id: str,
+        body: LoginRequest,
+        ip: str,
+        signals,
+    ) -> None:
+        """Tell the PDP about a wrong password (ADR-0027). Best effort, never enforcing.
+
+        Without this the PDP only ever sees successes, so `failed_logins_last_24h`
+        is structurally 0 and credential stuffing is invisible to the decision —
+        the threat the project leads with. The returned decision is *discarded*:
+        a failed attempt is not an authentication, so there is nothing to enforce.
+        The recording is what matters, and it reaches the profile through the
+        normal outbox → profile-service path.
+
+        A PDP outage must not turn a wrong password into a 503, so failures here
+        are swallowed. That is the opposite of the enforcing call above, which
+        fails closed on purpose.
+        """
+        if not self._settings.report_failed_logins:
+            return
+        try:
+            self._pdp.evaluate(
+                RiskEvaluateRequest(
+                    event_id=uuid4(),
+                    application_id=body.application_id,
+                    user_id=user_id,
+                    timestamp=datetime.now(timezone.utc),
+                    ip_address=ip,
+                    asn=signals.asn,
+                    country=signals.country,
+                    device_type=body.device_type,
+                    os=body.os,
+                    browser=body.browser,
+                    login_successful=False,
+                    user_agent=body.user_agent,
+                )
+            )
+        except Exception:
+            logger.warning("failed-login report dropped for user_id=%s", user_id)
 
     def verify_mfa(self, body: MfaVerifyRequest) -> LoginResponse:
         now = datetime.now(timezone.utc)

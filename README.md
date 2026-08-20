@@ -50,9 +50,12 @@ client → POST /login
 Wrong password / unknown user → `INVALID_CREDENTIALS` (HTTP 200, **no** PDP
 call). Password ok but no group grant for the app → `ACCESS_DENIED` (HTTP 200,
 **no** PDP call; not a risk `BLOCK`). Unknown `application_id` → HTTP 400 (JSON) or an “unknown application”
-panel (HTML). PDP down / invalid response → HTTP 503 (fail closed; not a fake
-`BLOCK`). Admin APIs: HTTP 401 without a session, HTTP 403 if the user is not
-`is_admin`. Audit/PDP down on those proxies → HTTP 503.
+panel (HTML). PDP down / invalid response on the login path → degrade to
+`PDP_UNAVAILABLE_ACTION` (default `REQUIRE_MFA`) with a single `pdp_unavailable`
+reason and `risk_score` 0.0 — never a 503 (that is the mass lockout RNF-03
+forbids), never an `ALLOW`, and never a fake `BLOCK` (RF-10 / RNF-03, ADR-0028).
+Admin APIs: HTTP 401 without a session, HTTP 403 if the user is not `is_admin`.
+Audit/PDP down on those read proxies → HTTP 503.
 
 Live MFA is a platform passkey (`POST /mfa/webauthn/options` then
 `POST /mfa/webauthn/verify`). Completing MFA does **not** re-score. Mock OTP
@@ -122,7 +125,8 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 HTTP 400: unknown/expired challenge, unknown application.
 HTTP 401: missing/expired/unknown session.
 HTTP 403: session is not an admin.
-HTTP 503: PDP or audit store unavailable.
+HTTP 503: PDP or audit store unavailable — **admin reads only**. The login
+path degrades to a step-up instead (see above).
 
 ### Postgres tables (DB `rba_idp`)
 
@@ -209,7 +213,8 @@ Matches `rba-contracts` IdP login examples.
 | `DATABASE_URL` | `postgresql+psycopg://rba:rba@localhost:5432/rba_idp` | |
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
 | `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |
-| `PDP_TIMEOUT_SECONDS` | `2.0` | fail closed on timeout |
+| `PDP_TIMEOUT_SECONDS` | `2.0` | a timeout counts as unavailable |
+| `PDP_UNAVAILABLE_ACTION` | `REQUIRE_MFA` | login-path degrade when the PDP does not answer. Only `REQUIRE_MFA` / `REAUTHENTICATE` are accepted — `ALLOW` and `BLOCK` are unrepresentable by design (RNF-03) |
 | `AUDIT_BASE_URL` | `http://localhost:8000` | PDP `GET /decisions` (live browser). Set to `:8002` only for the async audit copy |
 | `SESSION_TTL_SECONDS` | `28800` | 8h bearer session |
 | `CHALLENGE_TTL_SECONDS` | `300` | 5m MFA/reauth challenge |

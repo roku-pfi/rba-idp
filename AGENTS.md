@@ -56,8 +56,12 @@ tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.
   stays on `POST /mfa/verify` for tests. No TOTP/SMS. Completing MFA does
   **not** re-score.
 - Do **not** add Redis/Postgres compose here — use `../rba-infra`.
-- PDP or audit unavailable → HTTP 503 (fail closed). Do not invent a `BLOCK`
-  or fake decisions.
+- PDP unavailable on the **login** path → degrade to `PDP_UNAVAILABLE_ACTION`
+  (default `REQUIRE_MFA`) with a `pdp_unavailable` reason and `fallback=true`.
+  Never 503 the login (mass lockout) and never let it through (RF-10 / RNF-03,
+  ADR-0028). Do not invent a `BLOCK` or fake a score.
+- PDP or audit unavailable on the **admin read** proxies → HTTP 503. A dashboard
+  that cannot load is not a login that cannot happen.
 - Only commit when explicitly asked; Conventional Commits; never commit secrets.
 
 ## Setup
