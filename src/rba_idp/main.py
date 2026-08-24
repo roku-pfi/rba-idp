@@ -14,13 +14,15 @@ from fastapi.templating import Jinja2Templates
 from rba_contracts import (
     Action,
     AddGroupMemberRequest,
+    AddGroupRoleRequest,
     AdminUserPublic,
     ApplicationPublic,
     CallbackTokenRequest,
     CallbackTokenResponse,
     CreateApplicationRequest,
-    CreateGroupGrantRequest,
     CreateGroupRequest,
+    CreatePermissionRequest,
+    CreateRoleRequest,
     CreateUserRequest,
     DecisionListResponse,
     DecisionRecord,
@@ -34,9 +36,14 @@ from rba_contracts import (
     MfaWebAuthnVerifyRequest,
     PatchApplicationRequest,
     PatchGroupRequest,
+    PatchRoleRequest,
     PatchUserRequest,
+    PermissionPublic,
     PolicyConfig,
+    RoleDetail,
+    RolePublic,
     SessionResponse,
+    SetRolePermissionsRequest,
 )
 
 from rba_idp.clients import AuditClient, HttpAuditClient, HttpPolicyClient, PolicyClient
@@ -53,11 +60,12 @@ logger = logging.getLogger(__name__)
 
 ADMIN_DIR = WEB_DIR / "admin"
 ADMIN_INDEX_HTML = """<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RBA Admin</title>
+  <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/admin.css">
 </head>
 <body>
@@ -220,8 +228,21 @@ def create_app(
         return request.app.state.admin_service
 
     def _guard(request: Request, authorization: str | None) -> AdminService:
+        """Read guard: `admin:read`. The support operator stops here (ADR-0029)."""
         service = _admin(request)
         service.require_admin(authorization)
+        return service
+
+    def _guard_write(request: Request, authorization: str | None) -> AdminService:
+        """Write guard: `admin:write`. Identity, applications, groups, roles."""
+        service = _admin(request)
+        service.require_write(authorization)
+        return service
+
+    def _guard_policy(request: Request, authorization: str | None) -> AdminService:
+        """Policy guard: `policy:write`. Thresholds, actions, monitor mode."""
+        service = _admin(request)
+        service.require_policy_write(authorization)
         return service
 
     @app.get("/admin/api/users", response_model=list[AdminUserPublic])
@@ -241,7 +262,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> AdminUserPublic:
-        return _guard(request, authorization).create_user(body)
+        return _guard_write(request, authorization).create_user(body)
 
     @app.patch("/admin/api/users/{user_id}", response_model=AdminUserPublic)
     def admin_patch_user(
@@ -250,7 +271,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> AdminUserPublic:
-        return _guard(request, authorization).patch_user(user_id, body)
+        return _guard_write(request, authorization).patch_user(user_id, body)
 
     @app.get("/admin/api/applications", response_model=list[ApplicationPublic])
     def admin_list_apps(
@@ -269,7 +290,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> ApplicationPublic:
-        return _guard(request, authorization).create_application(body)
+        return _guard_write(request, authorization).create_application(body)
 
     @app.patch(
         "/admin/api/applications/{application_id}",
@@ -281,7 +302,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> ApplicationPublic:
-        return _guard(request, authorization).patch_application(application_id, body)
+        return _guard_write(request, authorization).patch_application(application_id, body)
 
     @app.get("/admin/api/groups", response_model=list[GroupPublic])
     def admin_list_groups(
@@ -300,7 +321,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GroupDetail:
-        return _guard(request, authorization).create_group(body)
+        return _guard_write(request, authorization).create_group(body)
 
     @app.get("/admin/api/groups/{group_id}", response_model=GroupDetail)
     def admin_get_group(
@@ -317,7 +338,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GroupDetail:
-        return _guard(request, authorization).patch_group(group_id, body)
+        return _guard_write(request, authorization).patch_group(group_id, body)
 
     @app.delete("/admin/api/groups/{group_id}", status_code=204)
     def admin_delete_group(
@@ -325,7 +346,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> Response:
-        _guard(request, authorization).delete_group(group_id)
+        _guard_write(request, authorization).delete_group(group_id)
         return Response(status_code=204)
 
     @app.post("/admin/api/groups/{group_id}/members", response_model=GroupDetail)
@@ -335,7 +356,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GroupDetail:
-        return _guard(request, authorization).add_member(group_id, body)
+        return _guard_write(request, authorization).add_member(group_id, body)
 
     @app.delete(
         "/admin/api/groups/{group_id}/members/{user_id}",
@@ -347,28 +368,97 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GroupDetail:
-        return _guard(request, authorization).remove_member(group_id, user_id)
+        return _guard_write(request, authorization).remove_member(group_id, user_id)
 
-    @app.post("/admin/api/groups/{group_id}/grants", response_model=GroupDetail)
-    def admin_add_grant(
+    @app.post("/admin/api/groups/{group_id}/roles", response_model=GroupDetail)
+    def admin_add_group_role(
         group_id: str,
-        body: CreateGroupGrantRequest,
+        body: AddGroupRoleRequest,
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GroupDetail:
-        return _guard(request, authorization).add_grant(group_id, body)
+        return _guard_write(request, authorization).add_group_role(group_id, body)
 
     @app.delete(
-        "/admin/api/groups/{group_id}/grants/{application_id}",
+        "/admin/api/groups/{group_id}/roles/{role_id}",
         response_model=GroupDetail,
     )
-    def admin_remove_grant(
+    def admin_remove_group_role(
         group_id: str,
-        application_id: str,
+        role_id: str,
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> GroupDetail:
-        return _guard(request, authorization).remove_grant(group_id, application_id)
+        return _guard_write(request, authorization).remove_group_role(group_id, role_id)
+
+    @app.get("/admin/api/roles", response_model=list[RolePublic])
+    def admin_list_roles(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+        application_id: str | None = None,
+    ) -> list[RolePublic]:
+        return _guard(request, authorization).list_roles(application_id)
+
+    @app.post("/admin/api/roles", response_model=RoleDetail, status_code=201)
+    def admin_create_role(
+        body: CreateRoleRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RoleDetail:
+        return _guard_write(request, authorization).create_role(body)
+
+    @app.get("/admin/api/roles/{role_id}", response_model=RoleDetail)
+    def admin_get_role(
+        role_id: str,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RoleDetail:
+        return _guard(request, authorization).get_role(role_id)
+
+    @app.patch("/admin/api/roles/{role_id}", response_model=RoleDetail)
+    def admin_patch_role(
+        role_id: str,
+        body: PatchRoleRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RoleDetail:
+        return _guard_write(request, authorization).patch_role(role_id, body)
+
+    @app.delete("/admin/api/roles/{role_id}", status_code=204)
+    def admin_delete_role(
+        role_id: str,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _guard_write(request, authorization).delete_role(role_id)
+        return Response(status_code=204)
+
+    @app.put("/admin/api/roles/{role_id}/permissions", response_model=RoleDetail)
+    def admin_set_role_permissions(
+        role_id: str,
+        body: SetRolePermissionsRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RoleDetail:
+        return _guard_write(request, authorization).set_role_permissions(role_id, body)
+
+    @app.get("/admin/api/permissions", response_model=list[PermissionPublic])
+    def admin_list_permissions(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+        application_id: str | None = None,
+    ) -> list[PermissionPublic]:
+        return _guard(request, authorization).list_permissions(application_id)
+
+    @app.post(
+        "/admin/api/permissions", response_model=PermissionPublic, status_code=201
+    )
+    def admin_create_permission(
+        body: CreatePermissionRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> PermissionPublic:
+        return _guard_write(request, authorization).create_permission(body)
 
     @app.get("/admin/api/decisions", response_model=DecisionListResponse)
     def admin_list_decisions(
@@ -407,7 +497,7 @@ def create_app(
         request: Request,
         authorization: Annotated[str | None, Header()] = None,
     ) -> PolicyConfig:
-        return _guard(request, authorization).put_policy(body)
+        return _guard_policy(request, authorization).put_policy(body)
 
     @app.get("/admin", include_in_schema=False)
     @app.get("/admin/{path:path}", include_in_schema=False)

@@ -36,11 +36,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from webauthn.helpers import bytes_to_base64url
 from webauthn.helpers.exceptions import WebAuthnException
 
+from rba_idp.authz import (
+    ADMIN_READ,
+    effective_permissions,
+    has_application_access,
+)
 from rba_idp.config import Settings
 from rba_idp.db.models import (
     Application,
     AuthCode,
-    GroupAppGrant,
     GroupMembership,
     IdpSession,
     MfaChallenge,
@@ -88,21 +92,13 @@ def append_query(uri: str, **params: str) -> str:
 
 
 def user_has_app_access(session: Session, user_id: str, application_id: str) -> bool:
-    """True if any of the user's groups grants ``access`` on this application."""
-    grant = session.scalar(
-        select(GroupAppGrant.group_id)
-        .join(
-            GroupMembership,
-            GroupMembership.group_id == GroupAppGrant.group_id,
-        )
-        .where(
-            GroupMembership.user_id == user_id,
-            GroupAppGrant.application_id == application_id,
-            GroupAppGrant.permission == "access",
-        )
-        .limit(1)
-    )
-    return grant is not None
+    """True if any of the user's groups holds a role on this application.
+
+    Sign-in is not a permission of its own (ADR-0029) — holding a role *is* the
+    grant. That removes the class of bug where someone is given a role and still
+    cannot log in because a separate `access` row was forgotten.
+    """
+    return has_application_access(session, user_id, application_id)
 
 
 class LoginService:
@@ -389,7 +385,7 @@ class LoginService:
             )
 
     def get_session(self, authorization: str | None) -> SessionResponse:
-        row, user = self._load_session(authorization)
+        row, user, permissions = self._load_session(authorization)
         return SessionResponse(
             user=UserPublic(
                 user_id=user.user_id,
@@ -398,6 +394,8 @@ class LoginService:
                 is_admin=bool(user.is_admin),
             ),
             expires_at=_as_utc(row.expires_at),
+            application_id=row.application_id,
+            permissions=sorted(permissions),
         )
 
     def logout(self, authorization: str | None) -> None:
@@ -598,7 +596,14 @@ class LoginService:
             redirect_to=redirect_to,
         )
 
-    def _load_session(self, authorization: str | None) -> tuple[IdpSession, User]:
+    def _load_session(
+        self, authorization: str | None
+    ) -> tuple[IdpSession, User, set[str]]:
+        """Resolve a bearer token to (session, user, effective permissions).
+
+        Permissions are read inside the same transaction as the session, so a
+        role revoked a moment ago cannot be used by a token issued before it.
+        """
         raw = bearer_token(authorization)
         if raw is None:
             raise HTTPException(status_code=401, detail="missing or expired session")
@@ -610,10 +615,31 @@ class LoginService:
             user = session.get(User, row.user_id)
             if user is None or not user.enabled:
                 raise HTTPException(status_code=401, detail="missing or expired session")
-            return row, user
+            permissions = effective_permissions(session, user.user_id, row.application_id)
+            return row, user, permissions
+
+    def require_permission(
+        self, authorization: str | None, resource: str, operation: str
+    ) -> User:
+        """Authorize one operation on the session's application (RF-21).
+
+        The session is already scoped to an application, so there is nothing to
+        pass in and nothing for a caller to get wrong: a bank token can never
+        authorize an admin operation, whatever roles the user holds elsewhere.
+        """
+        _row, user, permissions = self._load_session(authorization)
+        if f"{resource}:{operation}" not in permissions:
+            raise HTTPException(
+                status_code=403,
+                detail=f"requires permission {resource}:{operation}",
+            )
+        return user
 
     def require_admin(self, authorization: str | None) -> User:
-        _row, user = self._load_session(authorization)
-        if not user.is_admin:
-            raise HTTPException(status_code=403, detail="admin required")
-        return user
+        """Guard for the admin console. Now RBAC, not the `is_admin` flag.
+
+        `admin:read` is the console's entry permission; the support operator
+        holds it and stops there (HU-10), while write endpoints ask separately
+        for `admin:write` or `policy:write`.
+        """
+        return self.require_permission(authorization, *ADMIN_READ)

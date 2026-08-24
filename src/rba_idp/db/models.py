@@ -1,4 +1,9 @@
-"""SQLAlchemy models: applications, users, groups, sessions, MFA challenges."""
+"""SQLAlchemy models: applications, users, groups, roles, sessions, MFA challenges.
+
+Authorization is RBAC (ADR-0029): ``user → group → role → permission``, with
+every role scoped to one application. Groups say *who*; roles say *what you
+may do*. Holding any role on an application is what grants sign-in to it.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +39,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Directory label only — **not** an authorization input (ADR-0029).
+    # Authorization is the RBAC chain below. Setting this through the admin API
+    # adds or removes the platform-admin role, so the flag can never disagree
+    # with what the user can actually do.
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -68,18 +77,82 @@ class GroupMembership(Base):
     )
 
 
-class GroupAppGrant(Base):
-    """App-scoped permission for a group. Thesis-scale: permission is always 'access'."""
+class Permission(Base):
+    """One operation on one resource, scoped to one application.
 
-    __tablename__ = "group_app_grants"
+    The wire form clients check is ``f"{resource}:{operation}"`` — e.g.
+    ``transfer:create``. It is derived on serialisation, never stored twice.
+    """
+
+    __tablename__ = "permissions"
+    __table_args__ = (
+        UniqueConstraint(
+            "application_id", "resource", "operation", name="uq_permissions_scope"
+        ),
+    )
+
+    permission_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    application_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("applications.application_id"), nullable=False, index=True
+    )
+    resource: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Role(Base):
+    """Named bundle of permissions on one application.
+
+    Roles are application-scoped on purpose: ``viewer`` on the bank and
+    ``viewer`` on the admin console are different things, and a role that could
+    span applications would let one tenant's admin grant rights on another's.
+    """
+
+    __tablename__ = "roles"
+    __table_args__ = (
+        UniqueConstraint("application_id", "name", name="uq_roles_app_name"),
+    )
+
+    role_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    application_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("applications.application_id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+
+    role_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("roles.role_id"), primary_key=True
+    )
+    permission_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("permissions.permission_id"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GroupRole(Base):
+    """Role assignment. Users get roles by belonging to a group, never directly —
+    one place to look when asking why someone can do something."""
+
+    __tablename__ = "group_roles"
 
     group_id: Mapped[str] = mapped_column(
         String(128), ForeignKey("groups.group_id"), primary_key=True
     )
-    application_id: Mapped[str] = mapped_column(
-        String(128), ForeignKey("applications.application_id"), primary_key=True
+    role_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("roles.role_id"), primary_key=True
     )
-    permission: Mapped[str] = mapped_column(String(32), primary_key=True, default="access")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -9,9 +9,14 @@ import {
   type Decision,
   type Group,
   type GroupDetail,
+  type Permission,
+  type Role,
+  type RoleDetail,
   type SessionUser,
   type Tab,
 } from "./api";
+
+const TABS: Tab[] = ["decisions", "policy", "users", "apps", "groups", "roles"];
 
 export default function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -26,18 +31,28 @@ export default function App() {
   const [selectedGroup, setSelectedGroup] = useState<GroupDetail | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [policyText, setPolicyText] = useState("");
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [selectedRole, setSelectedRole] = useState<RoleDetail | null>(null);
+  // ADR-0029: the console is gated by permissions, not by the is_admin flag, so
+  // a support operator can read decisions without being able to change them.
+  const [granted, setGranted] = useState<string[]>([]);
+  const canWrite = granted.includes("admin:write");
+  const canPolicy = granted.includes("policy:write");
 
   useEffect(() => {
     if (!currentToken()) {
       redirectToLogin();
       return;
     }
-    api<{ user: SessionUser }>("/session")
+    api<{ user: SessionUser; permissions?: string[] }>("/session")
       .then((session) => {
-        if (!session.user?.is_admin) {
+        const perms = session.permissions ?? [];
+        if (!perms.includes("admin:read")) {
           setForbidden(true);
           return;
         }
+        setGranted(perms);
         setUser(session.user);
       })
       .catch((err: Error) => {
@@ -69,6 +84,17 @@ export default function App() {
       if (tab === "policy") {
         const policy = await api<unknown>("/admin/api/policy");
         setPolicyText(JSON.stringify(policy, null, 2));
+      }
+      if (tab === "roles") {
+        const [listed, perms, registered] = await Promise.all([
+          api<Role[]>("/admin/api/roles"),
+          api<Permission[]>("/admin/api/permissions"),
+          api<Application[]>("/admin/api/applications"),
+        ]);
+        setRoles(listed);
+        setPermissions(perms);
+        setApps(registered);
+        setSelectedRole(null);
       }
     };
     load().catch((err: Error) => setError(err.message));
@@ -105,19 +131,26 @@ export default function App() {
   return (
     <div className="admin-shell">
       <header className="admin-top">
-        <div>
+        <div className="brand">
           <p className="brand-mark">RBA Identity</p>
-          <p className="brand-sub">Admin console</p>
+          <p className="brand-sub">Admin</p>
         </div>
         <div className="who">
           {user.email}
+          {/* What this session actually holds. The answer to "why can I see this
+              button and my colleague cannot" belongs on screen, not in a log. */}
+          {granted.map((scope) => (
+            <span className="role" key={scope}>
+              {scope}
+            </span>
+          ))}
           <button className="secondary" type="button" onClick={() => void logout()}>
             Sign out
           </button>
         </div>
       </header>
       <nav className="tabs">
-        {(["decisions", "policy", "users", "apps", "groups"] as Tab[]).map((id) => (
+        {TABS.map((id) => (
           <button
             key={id}
             type="button"
@@ -197,8 +230,9 @@ export default function App() {
         <section className="panel">
           <h1>Policy</h1>
           <p className="lede">
-            Score bands and level→action map. Saving hot-reloads the PDP; the next login uses the
-            new thresholds.
+            Score bands, level→action map and monitor-only mode. Saving hot-reloads the
+            PDP; the next login uses the new thresholds. Requires <code>policy:write</code>
+            — a support operator can read this and not save it.
           </p>
           {banner}
           <form
@@ -222,7 +256,7 @@ export default function App() {
             }}
           >
             <textarea value={policyText} onChange={(event) => setPolicyText(event.target.value)} />
-            <button type="submit" style={{ marginTop: "0.9rem" }}>
+            <button type="submit" style={{ marginTop: "0.9rem" }} disabled={!canPolicy}>
               Save policy
             </button>
           </form>
@@ -392,8 +426,9 @@ export default function App() {
         <section className="panel">
           <h1>Groups</h1>
           <p className="lede">
-            App-scoped access. A user may sign in to an application only if one of their
-            groups grants <code>access</code>. Operator console still uses the admin flag.
+            Groups answer <em>who</em>; roles answer <em>what they may do</em>. A user
+            may sign in to an application only if one of their groups holds a role on
+            it — holding the role <em>is</em> the grant (ADR-0029).
           </p>
           {banner}
           <form
@@ -542,66 +577,214 @@ export default function App() {
                     </li>
                   ))}
                 </ul>
-                <h3>App grants</h3>
+                <h3>Roles</h3>
                 <form
                   className="form-row"
                   onSubmit={(event: FormEvent<HTMLFormElement>) => {
                     event.preventDefault();
-                    const applicationId = String(
-                      new FormData(event.currentTarget).get("application_id"),
-                    );
-                    api<GroupDetail>(`/admin/api/groups/${selectedGroup.group_id}/grants`, {
+                    const roleId = String(new FormData(event.currentTarget).get("role_id"));
+                    api<GroupDetail>(`/admin/api/groups/${selectedGroup.group_id}/roles`, {
                       method: "POST",
-                      body: JSON.stringify({ application_id: applicationId }),
+                      body: JSON.stringify({ role_id: roleId }),
                     })
                       .then(setSelectedGroup)
                       .catch((err: Error) => setError(err.message));
                   }}
                 >
                   <label>
-                    Application
-                    <select name="application_id" required>
-                      {apps
+                    Role
+                    <select name="role_id" required>
+                      {roles
                         .filter(
-                          (app) =>
-                            !selectedGroup.grants.some(
-                              (grant) => grant.application_id === app.application_id,
-                            ),
+                          (role) =>
+                            !selectedGroup.roles.some((held) => held.role_id === role.role_id),
                         )
-                        .map((app) => (
-                          <option key={app.application_id} value={app.application_id}>
-                            {app.name}
+                        .map((role) => (
+                          <option key={role.role_id} value={role.role_id}>
+                            {role.application_id} · {role.name}
                           </option>
                         ))}
                     </select>
                   </label>
-                  <button type="submit">Grant access</button>
+                  <button type="submit" disabled={!canWrite}>
+                    Assign role
+                  </button>
                 </form>
                 <ul className="plain">
-                  {selectedGroup.grants.map((grant) => (
-                    <li key={grant.application_id}>
-                      <span className="mono">{grant.application_id}</span>
-                      <span className="muted"> {grant.permission}</span>
+                  {selectedGroup.roles.map((role) => (
+                    <li key={role.role_id}>
+                      <span className="mono">{role.name}</span>
+                      <span className="muted"> on {role.application_id}</span>
                       <button
                         className="secondary"
                         type="button"
+                        disabled={!canWrite}
                         onClick={() => {
                           api<GroupDetail>(
-                            `/admin/api/groups/${selectedGroup.group_id}/grants/${grant.application_id}`,
+                            `/admin/api/groups/${selectedGroup.group_id}/roles/${role.role_id}`,
                             { method: "DELETE" },
                           )
                             .then(setSelectedGroup)
                             .catch((err: Error) => setError(err.message));
                         }}
                       >
-                        Revoke
+                        Unassign
                       </button>
                     </li>
                   ))}
                 </ul>
               </div>
             ) : (
-              <p className="muted">Select a group to manage members and app grants.</p>
+              <p className="muted">Select a group to manage members and roles.</p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {tab === "roles" && (
+        <section className="panel">
+          <h1>Roles &amp; permissions</h1>
+          <p className="lede">
+            A role is a named bundle of permissions on <em>one</em> application. A
+            permission is <code>resource:operation</code> — the string a relying party
+            actually checks. Roles reach users through groups, so there is one place to
+            look when asking why someone can do something.
+          </p>
+          {banner}
+          <form
+            className="form-row"
+            onSubmit={(event: FormEvent<HTMLFormElement>) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              const form = event.currentTarget;
+              api<RoleDetail>("/admin/api/roles", {
+                method: "POST",
+                body: JSON.stringify({
+                  application_id: String(data.get("application_id")),
+                  name: String(data.get("name")),
+                  description: String(data.get("description") || ""),
+                }),
+              })
+                .then((created) => {
+                  form.reset();
+                  setNotice(`Created ${created.name}`);
+                  return api<Role[]>("/admin/api/roles").then(setRoles);
+                })
+                .catch((err: Error) => setError(err.message));
+            }}
+          >
+            <label>
+              Application
+              <select name="application_id" required>
+                {apps.map((app) => (
+                  <option key={app.application_id} value={app.application_id}>
+                    {app.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Name
+              <input name="name" placeholder="auditor" required />
+            </label>
+            <label>
+              Description
+              <input name="description" placeholder="What this role is for" />
+            </label>
+            <button type="submit" disabled={!canWrite}>
+              Create role
+            </button>
+          </form>
+
+          <div className="split">
+            <table>
+              <thead>
+                <tr>
+                  <th>Role</th>
+                  <th>Application</th>
+                  <th>Permissions</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {roles.map((role) => (
+                  <tr key={role.role_id}>
+                    <td>
+                      <span className="mono">{role.name}</span>
+                      <div className="muted">{role.description}</div>
+                    </td>
+                    <td className="mono">{role.application_id}</td>
+                    <td>{role.permission_count}</td>
+                    <td>
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => {
+                          api<RoleDetail>(`/admin/api/roles/${role.role_id}`)
+                            .then(setSelectedRole)
+                            .catch((err: Error) => setError(err.message));
+                        }}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {selectedRole ? (
+              <div className="detail">
+                <h2>
+                  {selectedRole.name}
+                  <span className="muted"> on {selectedRole.application_id}</span>
+                </h2>
+                <p className="muted">{selectedRole.description}</p>
+                <form
+                  onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                    event.preventDefault();
+                    const checked = Array.from(
+                      new FormData(event.currentTarget).getAll("permission_ids"),
+                    ).map(String);
+                    api<RoleDetail>(
+                      `/admin/api/roles/${selectedRole.role_id}/permissions`,
+                      { method: "PUT", body: JSON.stringify({ permission_ids: checked }) },
+                    )
+                      .then((updated) => {
+                        setSelectedRole(updated);
+                        setNotice(`Saved ${updated.name}`);
+                        return api<Role[]>("/admin/api/roles").then(setRoles);
+                      })
+                      .catch((err: Error) => setError(err.message));
+                  }}
+                >
+                  <ul className="plain">
+                    {permissions
+                      .filter((perm) => perm.application_id === selectedRole.application_id)
+                      .map((perm) => (
+                        <li key={perm.permission_id}>
+                          <label className="check">
+                            <input
+                              type="checkbox"
+                              name="permission_ids"
+                              value={perm.permission_id}
+                              defaultChecked={selectedRole.permissions.some(
+                                (held) => held.permission_id === perm.permission_id,
+                              )}
+                            />
+                            <span className="mono">{perm.scope}</span>
+                            <span className="muted"> {perm.description}</span>
+                          </label>
+                        </li>
+                      ))}
+                  </ul>
+                  <button type="submit" disabled={!canWrite}>
+                    Save permissions
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <p className="muted">Select a role to edit its permissions.</p>
             )}
           </div>
         </section>

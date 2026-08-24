@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · RBA Identity</title>
+  <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/login.css">
 </head>
 <body>
@@ -48,7 +49,7 @@
 
       <section id="panel-denied" hidden>
         <h1>No access to this app</h1>
-        <p class="lede">Credentials were accepted, but this account is not in a group granted this application. Ask an operator to add you — this is not a risk block.</p>
+        <p class="lede">Credentials were accepted, but none of your groups holds a role on this application. Ask an operator to assign you one — this is not a risk block.</p>
         <p class="back"><a href="#" id="denied-restart">Try again</a></p>
       </section>
 
@@ -63,12 +64,12 @@
 
       <section id="panel-unavailable" hidden>
         <h1>Sign-in unavailable</h1>
-        <p class="lede">The risk service did not answer. This IdP fails closed — it does not invent a block.</p>
+        <p class="lede">This IdP did not answer. Nothing was decided and no session was created — try again in a moment.</p>
         <p class="back"><a href="#" id="unavailable-restart">Try again</a></p>
       </section>
     </main>
 
-    <p class="foot">Passwords stay on this IdP. Scoring is delegated to the PDP.</p>
+    <p class="foot">passwords stay on this idp · scoring delegated to the pdp</p>
   </div>
 
   <script type="application/json" id="boot">{{ boot | tojson }}</script>

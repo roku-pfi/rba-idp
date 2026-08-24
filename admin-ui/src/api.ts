@@ -1,7 +1,7 @@
 const SESSION_KEY = "rba.idp.session";
 const ADMIN_APP = "idp-admin-console";
 
-export type Tab = "decisions" | "policy" | "users" | "apps" | "groups";
+export type Tab = "decisions" | "policy" | "users" | "apps" | "groups" | "roles";
 
 export type SessionUser = {
   user_id: string;
@@ -34,7 +34,30 @@ export type Group = {
 
 export type GroupDetail = Group & {
   members: { user_id: string; email: string }[];
-  grants: { application_id: string; permission: string }[];
+  roles: { role_id: string; application_id: string; name: string }[];
+};
+
+/** ADR-0029: user -> group -> role -> permission, every role scoped to one app. */
+export type Permission = {
+  permission_id: string;
+  application_id: string;
+  resource: string;
+  operation: string;
+  description: string;
+  scope: string;
+};
+
+export type Role = {
+  role_id: string;
+  application_id: string;
+  name: string;
+  description: string;
+  permission_count: number;
+  created_at: string;
+};
+
+export type RoleDetail = Role & {
+  permissions: Permission[];
 };
 
 export type Reason = {

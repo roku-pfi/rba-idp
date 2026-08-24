@@ -75,7 +75,8 @@ def test_demo_user_is_forbidden_on_admin(client: TestClient) -> None:
     token = client.post("/login", json=LOGIN).json()["session"]["token"]
     resp = client.get("/admin/api/users", headers=_auth(token))
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "admin required"
+    # RBAC now names the missing permission instead of a generic "admin required".
+    assert resp.json()["detail"] == "requires permission admin:read"
 
 
 def test_admin_requires_session(client: TestClient) -> None:
@@ -198,3 +199,24 @@ def test_admin_policy_get_and_put(client: TestClient) -> None:
     assert client.get("/admin/api/policy", headers=_auth(token)).json()[
         "policy_version"
     ] == "1.0.0-from-admin"
+
+
+def test_theme_and_fonts_are_served(client: TestClient) -> None:
+    """Both consoles and the login page hang off theme.css, and it hangs off the
+    woff2 files next to it. A 404 on either is silent — the page still renders,
+    just in the wrong palette and the wrong face — so it is asserted here."""
+    theme = client.get("/static/theme.css")
+    assert theme.status_code == 200
+    assert "--accent" in theme.text
+    assert 'data-theme="dark"' in theme.text
+
+    # The fonts are self-hosted on purpose: a login page should not hand a
+    # third-party CDN a request on every sign-in attempt.
+    assert "fonts.googleapis.com" not in theme.text
+    assert "fonts.gstatic.com" not in theme.text
+
+    for name in ("instrument-sans-400700-latin", "ibm-plex-mono-400-latin"):
+        assert f"fonts/{name}.woff2" in theme.text
+        served = client.get(f"/static/fonts/{name}.woff2")
+        assert served.status_code == 200, name
+        assert served.content[:4] == b"wOF2", name

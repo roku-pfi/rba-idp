@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     seed_admin_application_id: str = "idp-admin-console"
     seed_admin_application_name: str = "IdP admin console"
 
+    # Read-only bank user (ADR-0029). Same application, same login, a role that
+    # omits `transfer:create` — the live proof that RF-21 authorizes operations
+    # and not just sign-in.
+    seed_viewer_user_id: str = "usr_viewer"
+    seed_viewer_email: str = "viewer@example.com"
+    seed_viewer_password: str = "viewer-password"
+
+    # Support operator (HU-10): may read decisions, may not change identity or
+    # policy. The thesis defines this actor; without roles it could not exist.
+    seed_operator_user_id: str = "usr_support"
+    seed_operator_email: str = "support@example.com"
+    seed_operator_password: str = "support-password"
+
     audit_base_url: str = "http://localhost:8000"
     audit_timeout_seconds: float = 2.0
 

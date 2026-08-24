@@ -33,7 +33,7 @@ browser  GET /admin
 client → POST /login
            → lookup application (rba_idp)
            → verify password (bcrypt)
-           → require group grant (access) for this application
+           → require a role on this application (ADR-0029)
            → POST /risk/evaluate (rba-decision-service)
            → ALLOW          → session token
            → MFA / REAUTH   → challenge_id  (WebAuthn; tests may POST /mfa/verify with 000000)
@@ -54,7 +54,9 @@ panel (HTML). PDP down / invalid response on the login path → degrade to
 `PDP_UNAVAILABLE_ACTION` (default `REQUIRE_MFA`) with a single `pdp_unavailable`
 reason and `risk_score` 0.0 — never a 503 (that is the mass lockout RNF-03
 forbids), never an `ALLOW`, and never a fake `BLOCK` (RF-10 / RNF-03, ADR-0028).
-Admin APIs: HTTP 401 without a session, HTTP 403 if the user is not `is_admin`.
+Admin APIs: HTTP 401 without a session, HTTP 403 without the permission the
+endpoint needs — `admin:read` to open the console, `admin:write` to change
+identity, `policy:write` to retune risk (ADR-0029).
 Audit/PDP down on those read proxies → HTTP 503.
 
 Live MFA is a platform passkey (`POST /mfa/webauthn/options` then
@@ -109,7 +111,7 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `POST` | `/mfa/verify` | Mock OTP (`MfaVerifyRequest`) → `LoginResponse` |
 | `POST` | `/mfa/webauthn/options` | `MfaWebAuthnOptionsRequest` → create/get options |
 | `POST` | `/mfa/webauthn/verify` | `MfaWebAuthnVerifyRequest` → `LoginResponse` |
-| `GET` | `/session` | Bearer required → `SessionResponse` (`is_admin` on user) |
+| `GET` | `/session` | Bearer required → `SessionResponse` with `application_id` and the session's effective `permissions` |
 | `POST` | `/logout` | Bearer; 204 even if already gone |
 | `GET/POST` | `/admin/api/users` | List / create (admin session) |
 | `PATCH` | `/admin/api/users/{user_id}` | Enable / role / password |
@@ -118,7 +120,11 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `GET/POST` | `/admin/api/groups` | List / create |
 | `GET/PATCH/DELETE` | `/admin/api/groups/{id}` | Detail / rename / delete |
 | `POST/DELETE` | `/admin/api/groups/{id}/members` | Add / remove user |
-| `POST/DELETE` | `/admin/api/groups/{id}/grants` | Grant / revoke app `access` |
+| `POST/DELETE` | `/admin/api/groups/{id}/roles` | Assign / unassign a role |
+| `GET/POST` | `/admin/api/roles` | List / create roles (`?application_id=` filter) |
+| `GET/PATCH/DELETE` | `/admin/api/roles/{id}` | Role detail with its permissions |
+| `PUT` | `/admin/api/roles/{id}/permissions` | Replace a role's permission set |
+| `GET/POST` | `/admin/api/permissions` | List / create permissions |
 | `GET` | `/admin/api/decisions` | Decision browser (reasons) |
 | `GET/PUT` | `/admin/api/policy` | Active PDP `PolicyConfig` |
 
@@ -134,7 +140,11 @@ Created on startup:
 
 - `applications` — registered clients (`application_id` PK)
 - `users` — `user_id`, unique email, bcrypt `password_hash`, `is_admin`
-- `groups` / `group_memberships` / `group_app_grants` — IdP-7 app access
+  (directory label only; authorization is RBAC)
+- `groups` / `group_memberships` — who
+- `roles` / `permissions` / `role_permissions` / `group_roles` — what they may
+  do. `user → group → role → permission(resource, operation)`, every role
+  scoped to one application (ADR-0029)
 - `sessions` — PK `token_hash`; TTL `SESSION_TTL_SECONDS` (8h)
 - `mfa_challenges` — pending step-up; TTL 5m; `consumed_at` on success; WebAuthn nonce
 - `webauthn_credentials` — platform passkeys (`credential_id` PK, COSE public key)
@@ -199,8 +209,12 @@ Written on every boot if missing (`seed.py`):
 | Application | `idp-admin-console` (IdP admin console) |
 | User | `demo@example.com` / `demo-password` (`usr_demo`, not admin) |
 | User | `admin@example.com` / `admin-password` (`usr_admin`, `is_admin`) |
-| Group | `grp_banking` — demo user → `access` on `demo-banking-app` |
-| Group | `grp_operators` — admin user → `access` on both apps |
+| User | `viewer@example.com` / `viewer-password` — read-only bank customer |
+| User | `support@example.com` / `support-password` — support operator |
+| Group | `grp_banking` — demo user → role `customer` on the bank |
+| Group | `grp_bank_viewers` — viewer user → role `viewer` (no `transfer:create`) |
+| Group | `grp_support` — support user → role `support-operator` on the console |
+| Group | `grp_operators` — admin user → `platform-admin` + `customer` |
 | Passkey | none seeded — first MFA **creates** a platform passkey |
 | Mock OTP | `000000` (tests only) |
 
@@ -235,8 +249,9 @@ Matches `rba-contracts` IdP login examples.
 - Call `/risk/evaluate` only after a successful password verify **and** a
   group grant for the application.
 - Do not put identity in `decision-service`.
-- Do not implement OIDC/SAML/SCIM. Groups grant `access` only (ADR-0019);
-  `is_admin` still gates `/admin/api`.
+- Do not implement OIDC/SAML/SCIM. Authorization is RBAC (ADR-0029): groups hold
+  roles, roles carry `resource:operation` permissions, roles are scoped to one
+  application. `is_admin` is a directory label, never an authorization input.
 - Hosted login stays on this origin ([ADR-0016](../docs/decisions/0016-hosted-login-on-idp.md)).
 - Admin is colocated here ([ADR-0017](../docs/decisions/0017-admin-console-colocated-on-idp.md));
   do not query `rba_audit` / `rba_decision` tables from this process.

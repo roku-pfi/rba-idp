@@ -34,7 +34,14 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-rba_idp = ["web/templates/*.html", "web/static/*", "web/admin/*", "web/admin/assets/*"]
+rba_idp = [
+  "web/templates/*.html",
+  "web/static/*",
+  # The self-hosted woff2 files; "web/static/*" does not reach into it.
+  "web/static/fonts/*",
+  "web/admin/*",
+  "web/admin/assets/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

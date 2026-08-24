@@ -1,0 +1,153 @@
+/* One palette, two themes (ADR-0030).
+
+   Light is the end user's side: the hosted login page and the bank. Dark is the
+   operator's: the admin console. Both draw from the same tokens, so a severity
+   colour means the same thing wherever it appears.
+
+   Severity never uses red or orange. It escalates by moving away from green —
+   green, cyan, indigo, plum — which separates on lightness as well as hue. That
+   survives greyscale printing and red-green colour vision deficiency, which
+   matters for the one person who reads a severity column all day.
+
+   The fonts are served from this origin. A login page that reaches out to a
+   third-party CDN hands that CDN a request on every sign-in attempt; 78 KB of
+   woff2 is a cheap way not to. */
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/ibm-plex-mono-400-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/ibm-plex-mono-500-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fonts/instrument-sans-400700-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fonts/instrument-sans-400700-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* surfaces */
+  --ground: #F3F5FB;
+  --surface: #FFFFFF;
+  --sunk: #EDF0F8;
+  --line: #DDE3F0;
+  --line-soft: #E9EDF6;
+  --glow: radial-gradient(1100px 460px at 10% -10%, #E4E9FA 0%, transparent 58%);
+
+  /* text */
+  --ink: #141824;
+  --muted: #59627A;
+  --faint: #8A93A8;
+
+  /* the one interactive colour */
+  --accent: #4C5FE0;
+  --accent-hover: #3B4CC4;
+  --accent-soft: #E9ECFD;
+  --on-accent: #FFFFFF;
+
+  /* severity: ALLOW/LOW, REQUIRE_MFA/MEDIUM, REAUTHENTICATE/HIGH, BLOCK/CRITICAL */
+  --sev-1: #2F8055;  --sev-1-bg: #E4F3EB;
+  --sev-2: #22809E;  --sev-2-bg: #E0F1F7;
+  --sev-3: #5B4BC4;  --sev-3-bg: #EAE7FA;
+  --sev-4: #8A3A93;  --sev-4-bg: #F6E6F7;
+
+  --shadow: 0 1px 2px rgba(20, 24, 36, .05), 0 14px 40px -18px rgba(20, 24, 36, .22);
+  --radius: 10px;
+  --radius-sm: 7px;
+
+  --sans: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, "SF Mono", Menlo, monospace;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ground: #0D1017;
+  --surface: #151A23;
+  --sunk: #1C2230;
+  --line: #28303F;
+  --line-soft: #1F2633;
+  --glow: radial-gradient(900px 420px at 12% -10%, #17203A 0%, transparent 62%);
+
+  --ink: #E3E8F2;
+  --muted: #858FA6;
+  --faint: #5D6679;
+
+  --accent: #8FA4FF;
+  --accent-hover: #A6B6FF;
+  --accent-soft: #1B2440;
+  --on-accent: #0D1017;
+
+  --sev-1: #63C48E;  --sev-1-bg: #16281F;
+  --sev-2: #69C3DE;  --sev-2-bg: #122630;
+  --sev-3: #A192F0;  --sev-3-bg: #1F1B36;
+  --sev-4: #D08BE0;  --sev-4-bg: #2C1730;
+
+  --shadow: none;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+/* Severity is always an outlined mono pill; an action you can take is always a
+   solid filled control. Different shape, so indigo can safely do both jobs. */
+.badge {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--faint);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+.badge.LOW, .badge.ALLOW { color: var(--sev-1); border-color: var(--sev-1); background: var(--sev-1-bg); }
+.badge.MEDIUM, .badge.REQUIRE_MFA { color: var(--sev-2); border-color: var(--sev-2); background: var(--sev-2-bg); }
+.badge.HIGH, .badge.REAUTHENTICATE { color: var(--sev-3); border-color: var(--sev-3); background: var(--sev-3-bg); }
+.badge.CRITICAL, .badge.BLOCK { color: var(--sev-4); border-color: var(--sev-4); background: var(--sev-4-bg); }
