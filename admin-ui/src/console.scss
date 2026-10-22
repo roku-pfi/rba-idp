@@ -484,6 +484,44 @@ body {
 .rk-app-name { @include type-style('heading-compact-02'); }
 .rk-app-foot { display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; .cds--tag { margin: 0; } }
 
+// ---------------------------------------------------------------- organisations
+.rk-form-card { max-width: 36rem; }
+.rk-brand {
+  display: grid;
+  grid-template-columns: minmax(0, 36rem) minmax(0, 20rem);
+  gap: 2rem;
+  align-items: start;
+  @media (max-width: 66rem) { grid-template-columns: minmax(0, 1fr); }
+}
+.rk-colours { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.rk-colour {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  input[type="color"] { width: 2.5rem; height: 2.5rem; padding: 0; border: 0; background: none; cursor: pointer; }
+  input[type="color"]:disabled { cursor: not-allowed; opacity: 0.5; }
+}
+.rk-preview-label { margin-bottom: 0.5rem; }
+
+// The tenant's login, small and light, as its users will see it (U-3 builds the real one).
+.rk-login-preview {
+  background: #f3f6fb;
+  color: #121a2c;
+  padding: 1.5rem;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+}
+.rk-lp-brand { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; img { height: 1.75rem; width: auto; } }
+.rk-lp-mono { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 6px; color: #fff; font-weight: 600; }
+.rk-lp-name { font-weight: 600; font-size: 0.95rem; }
+.rk-lp-title { font-weight: 600; font-size: 1.05rem; }
+.rk-lp-field { height: 2rem; background: #fff; border: 1px solid #dce3ef; border-radius: 6px; }
+.rk-lp-button { height: 2.25rem; border-radius: 6px; color: #fff; display: grid; place-items: center; font-weight: 600; }
+.rk-lp-seal { text-align: center; color: #59627a; font-size: 0.7rem; }
+
 // ---------------------------------------------------------------- decisions
 .rk-inline-tag { margin: 0 0 0 0.5rem; vertical-align: middle; }
 

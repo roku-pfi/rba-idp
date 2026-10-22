@@ -16,6 +16,8 @@ export type Console = {
   can: (permission: string) => boolean;
   permissions: string[];
   expiresAt: string | null;
+  /** Platform operator only: scope the console to another tenant (ADR-0033). */
+  actAs: (tenantId: string, stay?: boolean) => void;
   ok: (text: string) => void;
   fail: (err: unknown) => void;
 };

@@ -35,6 +35,7 @@ import { ConsoleProvider } from "./console";
 import { Account, standing } from "./pages/Account";
 import { Apps } from "./pages/Apps";
 import { Events } from "./pages/Events";
+import { Orgs } from "./pages/Orgs";
 import { Home } from "./pages/Home";
 import { Groups } from "./pages/Groups";
 import { Policy } from "./pages/Policy";
@@ -46,6 +47,7 @@ const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element>
   home: Home,
   events: Events,
   account: Account,
+  orgs: Orgs,
   policy: Policy,
   users: Users,
   groups: Groups,
@@ -57,6 +59,7 @@ const SECTION_ICON: Record<Section, typeof Activity> = {
   activity: Activity,
   directory: UserMultiple,
   access: Security,
+  platform: Enterprise,
 };
 
 const LOGO = "/static/brand/rokusec-logo-horizontal-inverse.svg";
@@ -139,6 +142,12 @@ export default function App() {
   if (!user) return null;
 
   const scopeId = scope ?? user.tenant_id;
+  const actAs = (tenantId: string, stay = false) => {
+    const next = tenantId === user.tenant_id ? null : tenantId;
+    switchTenant(next);
+    setScope(next);
+    if (!stay) navigate("home");
+  };
   const View = PAGE_VIEW[page];
   const go = (target: Page) => (event: React.MouseEvent) => {
     event.preventDefault();
@@ -147,7 +156,7 @@ export default function App() {
 
   return (
     <ConsoleProvider
-      value={{ user, tenant, scope: scopeId, can: (permission) => granted.includes(permission), permissions: granted, expiresAt }}
+      value={{ user, tenant, scope: scopeId, can: (permission) => granted.includes(permission), permissions: granted, expiresAt, actAs }}
     >
       <HeaderContainer
         render={({ isSideNavExpanded, onClickSideNavExpand }: { isSideNavExpanded: boolean; onClickSideNavExpand: () => void }) => (
@@ -214,9 +223,7 @@ export default function App() {
                       selectedItem={tenants.find((item) => item.tenant_id === scopeId) ?? null}
                       onChange={({ selectedItem }: { selectedItem: Tenant | null }) => {
                         if (!selectedItem) return;
-                        const next = selectedItem.tenant_id === user.tenant_id ? null : selectedItem.tenant_id;
-                        switchTenant(next);
-                        setScope(next);
+                        actAs(selectedItem.tenant_id, true);
                       }}
                     />
                   ) : (
@@ -227,7 +234,7 @@ export default function App() {
                   )}
                 </div>
                 <SideNavItems>
-                  {SECTIONS.map((section) => {
+                  {SECTIONS.filter((section) => section.id !== "platform" || tenants.length > 0).map((section) => {
                     const items = PAGES.filter((item) => item.section === section.id);
                     return (
                       <SideNavMenu
@@ -251,13 +258,6 @@ export default function App() {
                       </SideNavMenu>
                     );
                   })}
-                  {tenants.length > 0 && (
-                    <SideNavMenu title="Plataforma" renderIcon={Enterprise} defaultExpanded>
-                      <SideNavMenuItem href="#" aria-disabled="true" onClick={(e: React.MouseEvent) => e.preventDefault()}>
-                        Organizaciones (próximamente)
-                      </SideNavMenuItem>
-                    </SideNavMenu>
-                  )}
                 </SideNavItems>
               </SideNav>
             </Header>

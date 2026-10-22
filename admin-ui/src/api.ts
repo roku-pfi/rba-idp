@@ -18,7 +18,14 @@ export type Tenant = {
   name: string;
   operator_domains: string[];
   is_platform: boolean;
-  branding: { display_name: string; login_style: string };
+  branding: {
+    display_name: string;
+    login_style: "rokusec" | "tenant";
+    logo_url?: string | null;
+    primary_colour: string;
+    accent_colour: string;
+  };
+  created_at?: string;
 };
 
 export type AdminUser = {

@@ -4,15 +4,17 @@
 
 import { useEffect, useState } from "react";
 
-export type Page = "home" | "events" | "policy" | "users" | "apps" | "groups" | "roles" | "account";
+export type Page = "home" | "events" | "policy" | "users" | "apps" | "groups" | "roles" | "orgs" | "account";
 
 /** The side navigation's sections, grouped by what the operator is doing. */
-export type Section = "activity" | "directory" | "access";
+export type Section = "activity" | "directory" | "access" | "platform";
 
 export const SECTIONS: { id: Section; label: string }[] = [
   { id: "activity", label: "Actividad" },
   { id: "directory", label: "Directorio" },
   { id: "access", label: "Acceso" },
+  // Shown only to the platform operator (ADR-0033).
+  { id: "platform", label: "Plataforma" },
 ];
 
 // `section: null` pages are reached from elsewhere (the account menu), not the nav.
@@ -24,6 +26,7 @@ export const PAGES: { id: Page; slug: string; label: string; section: Section | 
   { id: "roles", slug: "roles", label: "Roles", section: "directory" },
   { id: "apps", slug: "aplicaciones", label: "Aplicaciones", section: "access" },
   { id: "policy", slug: "politica", label: "Política", section: "access" },
+  { id: "orgs", slug: "organizaciones", label: "Organizaciones", section: "platform" },
   { id: "account", slug: "cuenta", label: "Mi cuenta", section: null },
 ];
 
