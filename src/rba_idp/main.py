@@ -80,7 +80,7 @@ from rba_idp.services.admin import (
 from rba_idp.services.enrollment import EnrollmentService
 from rba_idp.services.login import LoginService
 from rba_idp.tenancy import TenantPolicyCache
-from rba_idp.web import WEB_DIR
+from rba_idp.web import WEB_DIR, RevalidatingStaticFiles, static_version
 from rba_idp.web.context import client_ip, hosted_boot
 
 logger = logging.getLogger(__name__)
@@ -170,7 +170,10 @@ def create_app(
         lifespan=lifespan,
     )
     templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
-    app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
+    templates.env.globals["v"] = static_version()
+    app.mount(
+        "/static", RevalidatingStaticFiles(directory=str(WEB_DIR / "static")), name="static"
+    )
     assets = ADMIN_DIR / "assets"
     if assets.is_dir():
         app.mount("/admin/assets", StaticFiles(directory=str(assets)), name="admin-assets")

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in · RBA Identity</title>
-  <link rel="stylesheet" href="/static/theme.css">
-  <link rel="stylesheet" href="/static/login.css">
+  <link rel="stylesheet" href="/static/theme.css?v={{ v }}">
+  <link rel="stylesheet" href="/static/login.css?v={{ v }}">
 </head>
 <body>
   <div class="shell">
@@ -87,7 +87,8 @@
   </div>
 
   <script type="application/json" id="boot">{{ boot | tojson }}</script>
-  <script src="/static/passkey.js"></script>
-  <script src="/static/login.js"></script>
+  <script src="/static/form.js?v={{ v }}"></script>
+  <script src="/static/passkey.js?v={{ v }}"></script>
+  <script src="/static/login.js?v={{ v }}"></script>
 </body>
 </html>

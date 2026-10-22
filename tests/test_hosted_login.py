@@ -128,3 +128,18 @@ def test_json_login_still_works_alongside_html(client: TestClient) -> None:
     resp = client.post("/login", json=LOGIN)
     assert resp.status_code == 200
     assert resp.json()["outcome"] == "AUTHENTICATED"
+
+
+def test_static_assets_are_versioned_and_revalidated(client: TestClient) -> None:
+    """A phone ran an old cached script against a new page; never again."""
+    import re as _re
+
+    for path in ("/login?application_id=roku-bank-web", "/activate"):
+        html = client.get(path).text
+        refs = _re.findall(r'/static/[\w.-]+\?v=([0-9a-f]{12})"', html)
+        assert refs and len(set(refs)) == 1, path
+        assert "/static/form.js?v=" in html
+    resp = client.get("/static/login.js")
+    assert resp.headers["cache-control"] == "no-cache"
+    again = client.get("/static/login.js", headers={"if-none-match": resp.headers["etag"]})
+    assert again.status_code == 304

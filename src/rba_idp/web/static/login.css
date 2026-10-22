@@ -198,3 +198,36 @@ code, .mono { font-family: var(--mono); font-size: 0.85em; }
   font-size: 0.74rem;
   color: var(--faint);
 }
+
+/* Password show/hide toggle (form.js). */
+.reveal-wrap {
+  position: relative;
+}
+
+.reveal-wrap input {
+  padding-right: 2.6rem;
+}
+
+button.reveal {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+button.reveal:hover,
+button.reveal:focus-visible {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
