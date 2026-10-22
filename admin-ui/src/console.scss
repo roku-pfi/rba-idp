@@ -14,7 +14,6 @@
 @use '@carbon/react';
 @use '@carbon/react/scss/type' as *;
 
-@use './legacy';
 
 // Carbon emits a theme only on its zone classes; the console is g100 throughout.
 :root {
@@ -391,6 +390,99 @@ body {
   margin-left: 0.5rem;
   vertical-align: middle;
 }
+
+// ---------------------------------------------------------------- directory
+.rk-clickable { cursor: pointer; }
+.rk-clickable:focus-visible { outline: 2px solid var(--cds-focus); outline-offset: -2px; }
+
+// Overlapping faces, as in a group's member list.
+.rk-faces { display: inline-flex; align-items: center; }
+.rk-faces .rk-avatar { width: 1.75rem; height: 1.75rem; border: 2px solid var(--cds-layer-01); margin-left: -0.5rem; }
+.rk-faces .rk-avatar:first-child { margin-left: 0; }
+.rk-faces-more { margin-left: 0.375rem; @include type-style('helper-text-01'); color: var(--cds-text-secondary); }
+
+// A group is a square; a person is a circle.
+.rk-group-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 4px;
+  @include type-style('heading-compact-01');
+  color: #fff;
+  background: #6f6f6f;
+  &[data-tag="blue"] { background: #0f62fe; }
+  &[data-tag="teal"] { background: #007d79; }
+  &[data-tag="purple"] { background: #8a3ffc; }
+  &[data-tag="magenta"] { background: #d02670; }
+  &[data-tag="green"] { background: #198038; }
+  &[data-tag="cyan"] { background: #0072c3; }
+}
+.rk-page-head .rk-group-mark { width: 3rem; height: 3rem; @include type-style('heading-03'); }
+
+.rk-tabpanel { padding: 1rem 0; }
+.rk-inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  max-width: 36rem;
+  margin-bottom: 1rem;
+  .cds--list-box__wrapper { flex: 1; }
+}
+.rk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 48rem;
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.625rem 1rem;
+    background: var(--cds-layer-01);
+    border-bottom: 1px solid var(--cds-border-subtle-01);
+  }
+}
+
+.rk-perm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 1.5rem; }
+.rk-perm-group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  legend { @include type-style('heading-compact-01'); margin-bottom: 0.5rem; }
+}
+
+// Applications as tiles, each with its monogram (authentik's "My applications").
+.rk-app-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+.rk-app {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+  background: var(--cds-layer-01);
+  &.is-off .rk-monogram { filter: grayscale(1); opacity: 0.6; }
+}
+.rk-app-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+.rk-monogram {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 8px;
+  color: #fff;
+  @include type-style('heading-04');
+}
+.rk-app-name { @include type-style('heading-compact-02'); }
+.rk-app-foot { display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; .cds--tag { margin: 0; } }
 
 // ---------------------------------------------------------------- decisions
 .rk-inline-tag { margin: 0 0 0 0.5rem; vertical-align: middle; }

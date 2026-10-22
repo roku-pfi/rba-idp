@@ -53,9 +53,6 @@ const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element>
   apps: Apps,
 };
 
-// Pages already rebuilt on Carbon; the rest keep their old look (U-2).
-const CARBON_PAGES = new Set<Page>(["home", "events", "users", "account", "policy"]);
-
 const SECTION_ICON: Record<Section, typeof Activity> = {
   activity: Activity,
   directory: UserMultiple,
@@ -268,7 +265,7 @@ export default function App() {
         )}
       />
 
-      <Content id="main-content" className={`rk-content${CARBON_PAGES.has(page) ? "" : " legacy"}`}>
+      <Content id="main-content" className="rk-content">
         {/* Remounted per tenant, so no page shows the previous tenant's rows. */}
         <View key={scopeId} itemId={itemId} />
         {/* CC BY 4.0 attribution for the IP → country/ASN data (ADR-0032). */}

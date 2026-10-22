@@ -38,6 +38,7 @@ export type Application = {
   name: string;
   enabled: boolean;
   created_at: string;
+  redirect_uri?: string | null;
 };
 
 export type Group = {
