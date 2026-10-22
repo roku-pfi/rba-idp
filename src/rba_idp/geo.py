@@ -57,30 +57,46 @@ def lookup_ip(ip: str) -> LoginSignals:
     return LoginSignals(country=None, asn=None)
 
 
+_ULA = ipaddress.ip_network("fc00::/7")
+
+
 def is_unroutable(ip: str) -> bool:
-    """True for loopback / RFC1918 / link-local — a laptop or cluster peer.
+    """True for loopback / RFC1918 / link-local / IPv6 ULA — a laptop or cluster peer.
 
     Do not use ``IPv4Address.is_private``: it includes RFC 5737 TEST-NETs,
-    which this module uses as demo geo stand-ins.
+    which this module uses as demo geo stand-ins. A global IPv6 address is
+    routable (it was treated as unroutable before C-2, so every IPv6 login
+    scored as the demo home).
     """
     try:
         addr = ipaddress.ip_address(ip.strip())
     except ValueError:
         return True
-    if not isinstance(addr, ipaddress.IPv4Address):
-        return True
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:
+            return is_unroutable(str(addr.ipv4_mapped))
+        return bool(addr.is_loopback or addr.is_link_local or addr in _ULA or addr.is_unspecified)
     return bool(
         addr.is_loopback
         or addr.is_link_local
+        or addr.is_unspecified
         or addr in ipaddress.ip_network("10.0.0.0/8")
         or addr in ipaddress.ip_network("172.16.0.0/12")
         or addr in ipaddress.ip_network("192.168.0.0/16")
     )
 
 
-def scored_ip(ip: str) -> str:
-    """Private peers score as the demo home TEST-NET so a usual laptop login can ALLOW."""
-    return HOME_IP if is_unroutable(ip) else ip.strip()
+def scored_ip(ip: str, *, private_is_home: bool = True) -> str:
+    """The address sent to the PDP.
+
+    Locally, private peers score as the demo home TEST-NET so a usual laptop
+    login can ALLOW. With ``private_is_home=False`` (cloud) the address goes
+    through as it is: a private one then carries no country or ASN, which the
+    features treat as not-seen — never as home.
+    """
+    if private_is_home and is_unroutable(ip):
+        return HOME_IP
+    return ip.strip()
 
 
 def resolve_login_signals(

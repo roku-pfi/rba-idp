@@ -59,12 +59,14 @@ def test_hosted_login_unknown_application(client: TestClient) -> None:
     assert 'id="panel-unknown"' in resp.text
 
 
-def test_hosted_login_uses_forwarded_ip(client: TestClient) -> None:
-    resp = client.get("/login", headers={"x-forwarded-for": "198.51.100.20, 10.0.0.1"})
+def test_forwarded_for_from_an_untrusted_peer_is_ignored(client: TestClient) -> None:
+    """With no trusted proxy configured, a client cannot pick its address by
+    sending its own X-Forwarded-For (ADR-0032)."""
+    resp = client.get("/login", headers={"x-forwarded-for": "198.51.100.20"})
     boot = _boot(resp.text)
-    assert boot["ip_address"] == "198.51.100.20"
-    assert boot["country"] == "DE"
-    assert boot["asn"] == "3320"
+    assert boot["ip_address"] != "198.51.100.20"
+    assert boot["country"] != "DE"
+    assert boot["asn"] != "3320"
 
 
 def test_hosted_login_country_override(client: TestClient) -> None:

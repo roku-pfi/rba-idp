@@ -253,7 +253,7 @@ class LoginService:
                         detail=ACCESS_DENIED_DETAIL,
                     )
 
-        ip = scored_ip(attempt.ip_address)
+        ip = scored_ip(attempt.ip_address, private_is_home=self._settings.private_ip_is_home)
         signals = resolve_login_signals(ip, country=attempt.country, asn=attempt.asn)
         policy = self._policies.get(attempt.tenant_id)
         engine_off = policy is not None and policy.engine_mode is EngineMode.OFF

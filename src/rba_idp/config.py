@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
@@ -25,6 +26,24 @@ class Settings(BaseSettings):
     deployment: Literal["local", "cloud"] = "local"
     # This IdP's browser-facing origin (CloudFront in the cloud).
     public_url: str = "http://localhost:8001"
+
+    # C-2 / ADR-0032: where the client's address comes from. Forwarding headers
+    # are believed only when the direct peer is in TRUSTED_PROXY_CIDRS (the
+    # ALB's subnets); empty means "the socket peer, always".
+    trusted_proxy_cidrs: str = ""
+    # Behind CloudFront the right-most X-Forwarded-For hop is the edge, not the
+    # viewer, so the cloud reads CloudFront's own header instead.
+    client_ip_header: Literal["x-forwarded-for", "cloudfront-viewer-address"] = (
+        "x-forwarded-for"
+    )
+    # Accept `ip_address` from the POST body. Locally the hosted page and the
+    # bank walkthrough's stand-in attacker rely on it; in the cloud it would let
+    # anyone claim the victim's usual address.
+    trust_client_reported_ip: bool = True
+    # Score loopback/private peers as the demo home address, so a laptop login
+    # looks usual. In the cloud a private address means the client IP was not
+    # resolved, and must not look like home.
+    private_ip_is_home: bool = True
 
     database_url: str = "postgresql+psycopg://rba:rba@localhost:5432/rba_idp"
     # When true, use in-memory SQLite (unit tests / no Docker).
@@ -81,6 +100,13 @@ class Settings(BaseSettings):
     audit_base_url: str = "http://localhost:8000"
     audit_timeout_seconds: float = 2.0
 
+    def trusted_proxies(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        return [
+            ipaddress.ip_network(part.strip(), strict=False)
+            for part in self.trusted_proxy_cidrs.split(",")
+            if part.strip()
+        ]
+
     def webauthn_origins(self) -> list[str]:
         return [part.strip() for part in self.webauthn_origin.split(",") if part.strip()]
 
@@ -104,6 +130,12 @@ def cloud_problems(s: Settings) -> list[str]:
     problems: list[str] = []
     if s.use_memory_db:
         problems.append("USE_MEMORY_DB is on: the directory would vanish with the pod")
+    if s.trust_client_reported_ip:
+        problems.append("TRUST_CLIENT_REPORTED_IP is on: a client could claim any address")
+    if s.private_ip_is_home:
+        problems.append("PRIVATE_IP_IS_HOME is on: an unresolved address would score as home")
+    if not s.trusted_proxy_cidrs.strip():
+        problems.append("TRUSTED_PROXY_CIDRS is empty: every login would carry the ALB's address")
     if s.mock_otp_enabled:
         problems.append("MOCK_OTP_ENABLED is on: a fixed code would pass every step-up")
     if "rba:rba@" in s.database_url or _is_local(s.database_url):
