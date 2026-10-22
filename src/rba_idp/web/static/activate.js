@@ -27,7 +27,7 @@
     event.preventDefault();
     setError("activate-error", "");
     if (!window.PublicKeyCredential) {
-      setError("activate-error", "This browser cannot create a passkey.");
+      setError("activate-error", "Este navegador no admite passkeys.");
       return;
     }
     const submit = document.getElementById("activate-submit");
@@ -40,7 +40,7 @@
         body: JSON.stringify({ code, password: document.getElementById("password").value }),
       });
       if (resp.status !== 200) {
-        setError("activate-error", "The code or the password is not right, or the code has expired.");
+        setError("activate-error", "El código o la contraseña no son correctos, o el código venció.");
         return;
       }
       publicKey = publicKeyFromJson((await resp.json()).public_key);
@@ -48,7 +48,7 @@
       show("panel-create");
       warnInApp(document.getElementById("create-inapp"));
     } catch {
-      setError("activate-error", "Couldn't reach the server. Try again.");
+      setError("activate-error", "Sin conexión con el servidor. Probá de nuevo.");
     } finally {
       submit.disabled = false;
     }
@@ -71,7 +71,7 @@
         body: JSON.stringify({ code, credential: credentialToJson(cred) }),
       });
       if (resp.status !== 204) {
-        setError("create-error", "Couldn't save the passkey. Ask support for a new code.");
+        setError("create-error", "No se pudo guardar la passkey. Pedí un código nuevo.");
         return;
       }
       show("panel-done");
@@ -81,8 +81,8 @@
       setError(
         "create-error",
         name === "NotAllowedError"
-          ? "The device did not create the passkey (cancelled or not allowed). Tap again to retry."
-          : `Couldn't create the passkey (${name}). Ask support for a new code.`
+          ? "El dispositivo no creó la passkey. Tocá de nuevo para reintentar."
+          : `No se pudo crear la passkey (${name}). Pedí un código nuevo.`
       );
     } finally {
       button.disabled = false;

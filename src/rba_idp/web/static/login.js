@@ -5,6 +5,7 @@
   const panels = {
     unknown: document.getElementById("panel-unknown"),
     credentials: document.getElementById("panel-credentials"),
+    checking: document.getElementById("panel-checking"),
     challenge: document.getElementById("panel-challenge"),
     blocked: document.getElementById("panel-blocked"),
     denied: document.getElementById("panel-denied"),
@@ -79,7 +80,7 @@
     const outcome = body.outcome;
     if (outcome === "INVALID_CREDENTIALS") {
       show("credentials");
-      setError("login-error", "Email or password is not right.");
+      setError("login-error", "El email o la contraseña no son correctos.");
       return;
     }
     if (outcome === "ACCESS_DENIED") {
@@ -96,9 +97,8 @@
       return;
     }
     if (outcome === "MFA_REQUIRED" || outcome === "REAUTH_REQUIRED") {
-      document.getElementById("challenge-title").textContent = "Confirm it’s you";
-      document.getElementById("challenge-lede").textContent =
-        "Use this device to confirm the sign-in.";
+      document.getElementById("challenge-title").textContent = "Confirmá que sos vos";
+      document.getElementById("challenge-lede").textContent = "Con la passkey de este dispositivo.";
       document.getElementById("mfa-submit").dataset.challengeId = body.challenge_id;
       setError("mfa-error", "");
       show("challenge");
@@ -121,7 +121,7 @@
       continueAfterLogin(body);
       return;
     }
-    setError("login-error", body.detail || "Unexpected response from the IdP.");
+    setError("login-error", "Algo salió mal. Probá de nuevo.");
     show("credentials");
   }
 
@@ -156,12 +156,12 @@
           document.getElementById("otp").focus();
           return;
         }
-        setError("mfa-error", "This challenge is unknown or expired.");
+        setError("mfa-error", "El pedido venció. Empezá de nuevo.");
         return;
       }
       stepUpKey = publicKeyFromJson((await parseJson(resp)).public_key);
     } catch {
-      setError("mfa-error", "Couldn't reach the server. Start again.");
+      setError("mfa-error", "Sin conexión con el servidor. Empezá de nuevo.");
     } finally {
       button.disabled = stepUpKey === null;
     }
@@ -202,13 +202,13 @@
     const email = session?.user?.email || "";
     const userId = body?.user_id || session?.user?.user_id || "";
     document.getElementById("session-lede").textContent = email
-      ? `You are signed in as ${email}.`
-      : "You have an active IdP session.";
+      ? email
+      : "";
     const facts = document.getElementById("session-facts");
     facts.replaceChildren();
     const rows = [
-      ["User", email || userId],
-      ["Expires", session?.expires_at ? new Date(session.expires_at).toLocaleString() : ""],
+      ["Usuario", email || userId],
+      ["Vence", session?.expires_at ? new Date(session.expires_at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) : ""],
     ];
     rows.forEach(([k, v]) => {
       if (!v) return;
@@ -271,7 +271,7 @@
         body: JSON.stringify({ credential: credentialToJson(cred) }),
       });
       if (resp.status !== 204) {
-        setError("offer-error", "Couldn't save the passkey. You can continue without it.");
+        setError("offer-error", "No se pudo guardar la passkey. Podés seguir sin ella.");
         return;
       }
       continueAfterLogin(pendingLogin);
@@ -280,8 +280,8 @@
       setError(
         "offer-error",
         err && err.name === "NotAllowedError"
-          ? "Cancelled. You can try again or continue without it."
-          : "Couldn't save the passkey. You can continue without it."
+          ? "Cancelado. Podés reintentar o seguir sin ella."
+          : "No se pudo guardar la passkey. Podés seguir sin ella."
       );
     } finally {
       button.disabled = false;
@@ -293,12 +293,11 @@
     return;
   }
 
-  const appName = boot.tenant_name && boot.tenant_name !== boot.application_name
-    ? `${boot.application_name} · ${boot.tenant_name}`
-    : boot.application_name || boot.application_id;
-  document.getElementById("credentials-title").textContent = `Sign in to ${appName}`;
+  // RokuSec's page says where you are going; the tenant's page is already its
+  // own, so it needs no subtitle.
+  const appName = boot.application_name || boot.application_id;
   document.getElementById("credentials-lede").textContent =
-    "This page is hosted by the IdP. The application never sees your password.";
+    boot.look === "tenant" ? "" : boot.console ? "Consola de RokuSec" : `Continuá a ${appName}`;
 
   const { publicKeyFromJson, credentialToJson, waiting, warnInApp } = window.RbaPasskey;
 
@@ -321,14 +320,20 @@
       if (!boot.console) payload.application_id = boot.application_id;
       if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
       if (boot.simulation_ticket && !boot.console) payload.simulation_ticket = boot.simulation_ticket;
-      const resp = await fetch(boot.console ? "/console/login" : "/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      // The scanning ring stays up long enough to be read as a step, not a flicker.
+      show("checking");
+      const [resp] = await Promise.all([
+        fetch(boot.console ? "/console/login" : "/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        }),
+        new Promise((resolve) => setTimeout(resolve, 700)),
+      ]);
       const body = await parseJson(resp);
       if (resp.status === 400) {
-        setError("login-error", body.detail || "Unknown application.");
+        show("credentials");
+        setError("login-error", "Aplicación desconocida.");
         return;
       }
       applyOutcome(body, resp.status);
@@ -345,7 +350,7 @@
     const challengeId = submit.dataset.challengeId;
     if (!challengeId) return;
     if (!window.PublicKeyCredential) {
-      setError("mfa-error", "This browser cannot confirm this device.");
+      setError("mfa-error", "Este navegador no admite passkeys.");
       return;
     }
     if (!stepUpKey) return;
@@ -358,7 +363,7 @@
       const cred = await pending;
       waiting(document.getElementById("mfa-wait"), false);
       if (!cred) {
-        setError("mfa-error", "Confirmation was cancelled.");
+        setError("mfa-error", "Cancelado. Podés reintentar.");
         return;
       }
       const payload = {
@@ -373,20 +378,20 @@
       });
       const body = await parseJson(resp);
       if (resp.status === 400) {
-        setError("mfa-error", "This challenge is unknown or expired.");
+        setError("mfa-error", "El pedido venció. Empezá de nuevo.");
         return;
       }
       if (body.outcome === "INVALID_CREDENTIALS") {
-        setError("mfa-error", "Couldn't confirm this device.");
+        setError("mfa-error", "No se pudo confirmar con este dispositivo.");
         return;
       }
       applyOutcome(body, resp.status);
     } catch (err) {
       waiting(document.getElementById("mfa-wait"), false);
       if (err && err.name === "NotAllowedError") {
-        setError("mfa-error", "Confirmation was cancelled.");
+        setError("mfa-error", "Cancelado. Podés reintentar.");
       } else {
-        setError("mfa-error", "Couldn't confirm this device.");
+        setError("mfa-error", "No se pudo confirmar con este dispositivo.");
       }
     } finally {
       submit.disabled = false;
@@ -406,7 +411,7 @@
     });
     const body = await parseJson(resp);
     if (resp.status !== 200 || body.outcome === "INVALID_CREDENTIALS") {
-      setError("mfa-error", "That code is not valid.");
+      setError("mfa-error", "Código incorrecto.");
       return;
     }
     applyOutcome(body, resp.status);

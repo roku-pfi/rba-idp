@@ -1,232 +1,292 @@
-/* Hosted login — the end user's side, so: light (ADR-0030).
-   Tokens and @font-face live in theme.css, which login.html links first. */
+/* Hosted login, activation (ADR-0036, ADR-0038).
+
+   Three looks over the same markup, chosen by the server on <html data-look>:
+   - console: RokuSec's login in the console's dark theme (Carbon g100);
+   - rokusec: the same login, light (Carbon white), for applications that use
+     RokuSec's page ("Continuá a Kaze Labs");
+   - tenant: the tenant's colours and logo in a layout of its own, with a
+     "Protegido por RokuSec" seal (Roku Bank).
+   IBM Plex is served from this origin: a login page that calls a font CDN
+   tells that CDN about every sign-in attempt. */
+
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 400; font-display: swap; src: url('fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 400; font-display: swap; src: url('fonts/ibm-plex-sans-latin-ext-400-normal.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 600; font-display: swap; src: url('fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'IBM Plex Sans'; font-weight: 600; font-display: swap; src: url('fonts/ibm-plex-sans-latin-ext-600-normal.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+
+/* ---------------------------------------------------------------- tokens */
+
+:root, [data-look="rokusec"] {
+  --bg: #f4f4f4;
+  --layer: #ffffff;
+  --field: #f4f4f4;
+  --field-hover: #e8e8e8;
+  --border: #8d8d8d;
+  --border-subtle: #e0e0e0;
+  --text: #161616;
+  --text-2: #525252;
+  --link: #1466e5;
+  --button: #1466e5;
+  --button-hover: #1150b0;
+  --button-text: #ffffff;
+  --focus: #1466e5;
+  --error: #da1e28;
+  --keyhole: #152953;
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --radius: 0;
+  color-scheme: light;
+}
+
+[data-look="console"] {
+  --bg: #161616;
+  --layer: #262626;
+  --field: #393939;
+  --field-hover: #474747;
+  --border: #8d8d8d;
+  --border-subtle: #393939;
+  --text: #f4f4f4;
+  --text-2: #c6c6c6;
+  --link: #4c9bff;
+  --button: #1466e5;
+  --button-hover: #1150b0;
+  --button-text: #ffffff;
+  --focus: #ffffff;
+  --error: #ff8389;
+  --keyhole: #e3e8f2;
+  color-scheme: dark;
+}
+
+/* The tenant's look: its two colours, a softer shape, the system typeface
+   until the tenant has one of its own (B-3). */
+[data-look="tenant"] {
+  --bg: #ffffff;
+  --layer: #ffffff;
+  --field: #ffffff;
+  --field-hover: #fafafa;
+  --border: #c9ced8;
+  --border-subtle: #e6e9ef;
+  --text: #1b1f27;
+  --text-2: #5b6372;
+  --link: var(--t-primary);
+  --button: var(--t-primary);
+  --button-hover: var(--t-accent);
+  --button-text: #ffffff;
+  --focus: var(--t-primary);
+  --error: #c21f3a;
+  --keyhole: #152953;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --radius: 10px;
+}
+
+/* ---------------------------------------------------------------- page */
+
+* { box-sizing: border-box; }
 
 html, body {
   margin: 0;
   min-height: 100%;
-  background: var(--glow), var(--ground);
-  color: var(--ink);
-  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
   -webkit-font-smoothing: antialiased;
 }
 
-.shell {
-  max-width: 25.5rem;
-  margin: 0 auto;
-  padding: 3.75rem 1.5rem 2rem;
-}
+.page { min-height: 100vh; display: flex; }
 
-.brand {
+.pane {
+  flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.55rem;
-  margin-bottom: 1.7rem;
+  padding: 4rem 1rem 1.5rem;
 }
 
-/* The logo is an <img>: the horizontal lockup, inverse on the dark console. */
-.brand-logo {
-  display: block;
-  height: 40px;
-  width: auto;
-}
-
-/* The page's own name sits after the logo, set off by a hairline. */
-.brand-logo + .brand-sub {
-  padding-left: 0.6rem;
-  border-left: 1px solid var(--line);
-}
-
-.brand-sub {
-  margin: 0;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
+.brand { width: 100%; max-width: 25rem; margin-bottom: 2rem; display: flex; align-items: center; gap: 0.625rem; }
+.brand-logo { display: block; height: 36px; width: auto; }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  width: 100%;
+  max-width: 25rem;
+  background: var(--layer);
+  padding: 2rem;
   border-radius: var(--radius);
-  padding: 1.9rem 1.7rem 1.7rem;
-  box-shadow: var(--shadow);
 }
 
-h1 {
-  margin: 0 0 0.4rem;
-  font-size: 1.5rem;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-}
+h1 { margin: 0 0 0.5rem; font-size: 1.75rem; font-weight: 400; line-height: 1.25; }
+.lede { margin: 0 0 1.5rem; color: var(--text-2); font-size: 0.875rem; line-height: 1.4; }
+.lede:empty { display: none; }
+.hint { margin: 0.75rem 0 0; color: var(--text-2); font-size: 0.75rem; line-height: 1.4; }
 
-.lede {
-  margin: 0 0 1.1rem;
-  color: var(--muted);
-  line-height: 1.55;
-  font-size: 0.95rem;
-}
-
-label {
-  display: block;
-  margin: 1.05rem 0 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--muted);
-}
+label { display: block; margin: 0 0 0.5rem; color: var(--text-2); font-size: 0.75rem; letter-spacing: 0.02em; }
 
 input {
   width: 100%;
-  padding: 0.72rem 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  font-size: 0.95rem;
-}
-
-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
-button {
-  display: block;
-  width: 100%;
-  margin-top: 1.4rem;
-  padding: 0.78rem 0.9rem;
+  height: 2.5rem;
+  margin: 0 0 1.5rem;
+  padding: 0 1rem;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-family: inherit;
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
+input:hover { background: var(--field-hover); }
+input:focus { outline-color: var(--focus); }
 
-button:hover { background: var(--accent-hover); }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-button.secondary {
-  background: transparent;
-  color: var(--ink);
-  border: 1px solid var(--line);
-}
-button.secondary:hover { background: var(--sunk); }
-
-/* A wrong password is not a severity level, so it does not borrow the ramp. */
-.form-error {
-  margin: 0.75rem 0 0;
-  padding: 0.55rem 0.7rem;
-  border-radius: var(--radius-sm);
-  background: var(--sunk);
-  border-left: 2px solid var(--muted);
-  color: var(--ink);
-  font-size: 0.87rem;
-}
-
-.hint, .back, .foot { font-size: 0.85rem; color: var(--muted); }
-.hint { margin: 0.5rem 0 0; }
-.back { margin: 1.1rem 0 0; }
-
-.foot {
-  margin: 1.5rem 0 0;
-  text-align: center;
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.02em;
-  color: var(--faint);
-}
-
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-code, .mono { font-family: var(--mono); font-size: 0.85em; }
-
-.facts {
-  display: grid;
-  grid-template-columns: 8rem 1fr;
-  gap: 0.4rem 0.75rem;
-  margin: 0 0 1.2rem;
-  font-size: 0.88rem;
-}
-.facts dt { color: var(--muted); }
-.facts dd { margin: 0; font-family: var(--mono); font-size: 0.82rem; }
-
-.decision {
-  margin: 0 0 1.1rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--sunk);
-}
-
-.decision h2 {
-  margin: 0 0 0.5rem;
-  font-family: var(--mono);
-  font-size: 0.66rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-weight: 500;
-  color: var(--faint);
-}
-
-.badge { margin-right: 0.35rem; }
-
-.reasons {
-  margin: 0.55rem 0 0;
-  padding-left: 1.1rem;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-.reasons li { margin: 0.28rem 0; }
-.reasons .signal {
-  font-family: var(--mono);
-  font-size: 0.74rem;
-  color: var(--faint);
-}
-
-/* Password show/hide toggle (form.js). */
-.reveal-wrap {
-  position: relative;
-}
-
-.reveal-wrap input {
-  padding-right: 2.6rem;
-}
-
-button.reveal {
+/* The password's show/hide eye (form.js). */
+.reveal-wrap { position: relative; }
+.reveal-wrap input { padding-right: 3rem; }
+.reveal {
   position: absolute;
-  top: 50%;
-  right: 0.35rem;
-  transform: translateY(-50%);
-  display: grid;
-  place-items: center;
-  width: 2.1rem;
-  height: 2.1rem;
+  top: 0;
+  right: 0;
+  width: 2.5rem;
+  height: 2.5rem;
   margin: 0;
   padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
   background: transparent;
-  color: var(--muted);
+  color: var(--text-2);
+  border: 0;
   cursor: pointer;
 }
+.reveal:hover { color: var(--text); background: transparent; }
+.reveal::after { content: none; }
+.reveal { min-height: 0; }
 
-button.reveal:hover,
-button.reveal:focus-visible {
-  color: var(--ink);
-  background: var(--accent-soft);
+/* Carbon's primary button: text left, arrow right, full width. */
+button {
+  width: 100%;
+  min-height: 3rem;
+  margin: 0.5rem 0 0;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--button);
+  color: var(--button-text);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-align: left;
+}
+button::after { content: "→"; font-size: 1.1rem; }
+button:hover { background: var(--button-hover); }
+button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.secondary { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+button.secondary::after { content: ""; }
+button.secondary:hover { background: var(--field-hover); }
+
+.form-error { margin: -0.75rem 0 1rem; color: var(--error); font-size: 0.75rem; }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.back { margin: 1.5rem 0 0; font-size: 0.875rem; color: var(--text-2); }
+
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.375rem 1rem; margin: 0 0 1.5rem; font-size: 0.875rem; }
+.facts dt { color: var(--text-2); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.foot {
+  margin-top: auto;
+  padding-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+.foot a { color: var(--text-2); }
+.seal { display: inline-flex; align-items: center; gap: 0.375rem; }
+
+/* ---------------------------------------------------------------- checking */
+
+/* While the engine decides: the mark's ring dims and a light runs around it. */
+#panel-checking:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 0;
+}
+.checking-text { margin: 0; color: var(--text-2); font-size: 0.875rem; }
+.lock .keyhole { fill: var(--keyhole); }
+.lock .ring { opacity: 0.22; }
+.lock .scan {
+  fill: none;
+  stroke: #17a2ff;
+  stroke-width: 84;
+  stroke-linecap: round;
+  stroke-dasharray: 160 778;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: scan 0.9s linear infinite;
+}
+@keyframes scan { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .lock .scan { animation-duration: 3s; } }
+
+/* ---------------------------------------------------------------- tenant layout */
+
+/* The tenant's own layout: a brand panel in its colour beside the form. */
+.t-side {
+  flex: 0 0 40%;
+  max-width: 34rem;
+  background: var(--t-primary);
+  background-image: linear-gradient(160deg, var(--t-primary), var(--t-accent));
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 3rem;
+}
+.t-mono {
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 2rem;
+  font-weight: 600;
+}
+.t-logo { max-width: 12rem; max-height: 4rem; }
+.t-name { font-size: 2.25rem; font-weight: 600; letter-spacing: -0.02em; }
+
+[data-look="tenant"] .pane { padding-top: 2rem; }
+/* The form sits in the middle of its half; the seal stays at the foot. */
+[data-look="tenant"] .card { margin: auto 0; }
+[data-look="tenant"] .foot { margin-top: 0; }
+[data-look="tenant"] .card { padding: 0; }
+[data-look="tenant"] h1 { font-weight: 600; font-size: 1.6rem; letter-spacing: -0.01em; }
+[data-look="tenant"] input { border: 1px solid var(--border); height: 2.75rem; }
+[data-look="tenant"] input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--t-primary) 22%, transparent); }
+[data-look="tenant"] button { justify-content: center; font-weight: 600; }
+[data-look="tenant"] button::after { content: ""; }
+[data-look="tenant"] .brand { display: none; }
+.t-mono-sm { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 8px; background: var(--t-primary); color: #fff; font-weight: 600; }
+.t-name-sm { font-weight: 600; font-size: 1.1rem; }
+.t-logo-sm { max-height: 2rem; }
+
+@media (max-width: 760px) {
+  .t-side { display: none; }
+  [data-look="tenant"] .brand { display: flex; }
+  [data-look="tenant"] .pane { padding-top: 3rem; }
+  [data-look="tenant"] .card { margin: 0 0 auto; }
+  .pane { padding-top: 2.5rem; }
+  .card { padding: 1.5rem; }
+  [data-look="tenant"] .card { padding: 0; }
 }
 
-/* Passkey prompt status and in-app-browser warning (passkey.js). */
-.hint {
-  margin: 0.8rem 0 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: var(--muted);
-}
+#form-otp .hint { margin: 0 0 1rem; }

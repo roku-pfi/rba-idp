@@ -73,21 +73,21 @@
   }
 
   const HINT =
-    "If no prompt appears, open this page in Safari or Chrome directly — not inside another app — and check that passkeys are on in your phone's password settings.";
+    "Si no aparece nada, abrí esta página directo en Safari o Chrome (no dentro de otra app) y revisá que las passkeys estén activadas.";
 
   // While the browser's prompt is (or should be) on screen. Without it, a
   // prompt that never appears looks like a dead button.
   function waiting(el, on) {
     if (!el) return;
     el.hidden = !on;
-    el.textContent = on ? `Waiting for your device… ${HINT}` : "";
+    el.textContent = on ? `Esperando a tu dispositivo… ${HINT}` : "";
   }
 
   // Shown before the tap when the page can tell it is in an in-app browser.
   function warnInApp(el) {
     if (!el || !inAppBrowser()) return;
     el.hidden = false;
-    el.textContent = `This looks like an in-app browser, where passkeys often do not work. ${HINT}`;
+    el.textContent = `Parece el navegador de otra app, donde las passkeys suelen fallar. ${HINT}`;
   }
 
   window.RbaPasskey = {

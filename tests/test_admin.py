@@ -261,22 +261,38 @@ def test_admin_policy_get_and_put(client: TestClient) -> None:
     ] == "1.0.0-from-admin"
 
 
-def test_theme_and_fonts_are_served(client: TestClient) -> None:
-    """Both consoles and the login page hang off theme.css, and it hangs off the
-    woff2 files next to it. A 404 on either is silent — the page still renders,
-    just in the wrong palette and the wrong face — so it is asserted here."""
-    theme = client.get("/static/theme.css")
-    assert theme.status_code == 200
-    assert "--accent" in theme.text
-    assert 'data-theme="dark"' in theme.text
+def test_login_styles_and_fonts_are_served(client: TestClient) -> None:
+    """The login and activation pages hang off login.css, and it hangs off the
+    woff2 files next to it. A 404 on either is silent (the page renders in the
+    wrong face), so it is asserted here."""
+    css = client.get("/static/login.css")
+    assert css.status_code == 200
+    for look in ('[data-look="console"]', '[data-look="tenant"]'):
+        assert look in css.text
 
-    # The fonts are self-hosted on purpose: a login page should not hand a
-    # third-party CDN a request on every sign-in attempt.
-    assert "fonts.googleapis.com" not in theme.text
-    assert "fonts.gstatic.com" not in theme.text
+    # Self-hosted on purpose: a login page should not hand a third-party CDN a
+    # request on every sign-in attempt.
+    assert "fonts.googleapis.com" not in css.text
+    assert "fonts.gstatic.com" not in css.text
 
-    for name in ("instrument-sans-400700-latin", "ibm-plex-mono-400-latin"):
-        assert f"fonts/{name}.woff2" in theme.text
+    for name in ("ibm-plex-sans-latin-400-normal", "ibm-plex-sans-latin-600-normal", "ibm-plex-mono-400-latin"):
+        assert f"fonts/{name}.woff2" in css.text
         served = client.get(f"/static/fonts/{name}.woff2")
         assert served.status_code == 200, name
         assert served.content[:4] == b"wOF2", name
+
+
+def test_the_login_looks_like_where_you_are_going(client: TestClient) -> None:
+    """ADR-0036: the console's login is RokuSec's, dark; an app's follows its
+    tenant: Kaze Labs uses RokuSec's page (light), Roku Bank its own."""
+    console = client.get("/console/login").text
+    assert 'data-look="console"' in console
+
+    kaze = client.get("/login?application_id=kaze-portal").text
+    assert 'data-look="rokusec"' in kaze
+
+    bank = client.get("/login?application_id=roku-bank-web").text
+    assert 'data-look="tenant"' in bank
+    assert "--t-primary:" in bank
+    assert "Protegido por RokuSec" in bank
+    assert "Protegido por RokuSec" not in kaze

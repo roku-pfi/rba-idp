@@ -14,14 +14,14 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "reveal";
-    button.setAttribute("aria-label", "Show password");
+    button.setAttribute("aria-label", "Mostrar contraseña");
     button.setAttribute("aria-pressed", "false");
     button.innerHTML = EYE;
     button.addEventListener("click", () => {
       const shown = input.type === "text";
       input.type = shown ? "password" : "text";
       button.innerHTML = shown ? EYE : EYE_OFF;
-      button.setAttribute("aria-label", shown ? "Show password" : "Hide password");
+      button.setAttribute("aria-label", shown ? "Mostrar contraseña" : "Ocultar contraseña");
       button.setAttribute("aria-pressed", shown ? "false" : "true");
       input.focus();
     });

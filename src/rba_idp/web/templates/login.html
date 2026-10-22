@@ -1,102 +1,147 @@
 <!DOCTYPE html>
-<html lang="en">
+{#- Three looks (ADR-0036): "console" is RokuSec's login in the console's dark
+    theme; "rokusec" is the same login, light, for an application that uses
+    RokuSec's page; "tenant" wears the tenant's own colours and logo, with a
+    "Protegido por RokuSec" seal. The server picks it, so the first paint is right. -#}
+{%- set look = boot.look -%}
+{%- set b = boot.branding or {} -%}
+<html lang="es" data-look="{{ look }}"{% if look == 'tenant' %} style="--t-primary: {{ b.primary }}; --t-accent: {{ b.accent }};"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · RokuSec</title>
+  <meta name="color-scheme" content="{{ 'dark' if look == 'console' else 'light' }}">
+  <title>Iniciar sesión · {{ b.display_name if look == 'tenant' else 'RokuSec' }}</title>
   <link rel="icon" href="/static/brand/favicon.svg?v={{ v }}" type="image/svg+xml">
   <link rel="icon" href="/static/brand/favicon-32.png?v={{ v }}" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png?v={{ v }}">
-  <link rel="stylesheet" href="/static/theme.css?v={{ v }}">
   <link rel="stylesheet" href="/static/login.css?v={{ v }}">
 </head>
 <body>
-  <div class="shell">
-    <header class="brand">
-      <img class="brand-logo" src="/static/brand/rokusec-logo-horizontal.svg?v={{ v }}" alt="RokuSec" width="91" height="40">
-      <p class="brand-sub">Risk-based sign-in</p>
-    </header>
+  <div class="page">
+    {%- if look == 'tenant' %}
+    <aside class="t-side" aria-hidden="true">
+      {%- if b.logo_url %}
+      <img class="t-logo" src="{{ b.logo_url }}" alt="">
+      {%- else %}
+      <span class="t-mono">{{ b.display_name[:1] | upper }}</span>
+      {%- endif %}
+      <span class="t-name">{{ b.display_name }}</span>
+    </aside>
+    {%- endif %}
 
-    <main class="card" id="card">
-      <section id="panel-unknown" hidden>
-        <h1>Unknown application</h1>
-        <p class="lede">This IdP has no registered client with that id. Apps must send users here with a known <code>application_id</code>.</p>
-      </section>
+    <div class="pane">
+      <header class="brand">
+        {%- if look == 'tenant' %}
+        {%- if b.logo_url %}<img class="t-logo-sm" src="{{ b.logo_url }}" alt="{{ b.display_name }}">{% else %}<span class="t-mono-sm" aria-hidden="true">{{ b.display_name[:1] | upper }}</span><span class="t-name-sm">{{ b.display_name }}</span>{% endif %}
+        {%- elif look == 'console' %}
+        <img class="brand-logo" src="/static/brand/rokusec-logo-horizontal-inverse.svg?v={{ v }}" alt="RokuSec" width="82" height="36">
+        {%- else %}
+        <img class="brand-logo" src="/static/brand/rokusec-logo-horizontal.svg?v={{ v }}" alt="RokuSec" width="82" height="36">
+        {%- endif %}
+      </header>
 
-      <section id="panel-credentials">
-        <h1 id="credentials-title">Sign in</h1>
-        <p class="lede" id="credentials-lede">Continue to the application.</p>
-        <form id="form-login" autocomplete="on">
-          <label for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="username" required>
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" autocomplete="current-password" required>
-          <p class="form-error" id="login-error" hidden></p>
-          <button type="submit" id="login-submit">Continue</button>
-        </form>
-      </section>
+      <main class="card" id="card">
+        <section id="panel-unknown" hidden>
+          <h1>Aplicación desconocida</h1>
+          <p class="lede">El enlace no corresponde a ninguna aplicación registrada.</p>
+        </section>
 
-      <section id="panel-challenge" hidden>
-        <h1 id="challenge-title">Confirm it’s you</h1>
-        <p class="lede" id="challenge-lede">Use this device to confirm the sign-in.</p>
-        <p class="hint" id="mfa-inapp" hidden></p>
-        <p class="form-error" id="mfa-error" hidden></p>
-        <button type="button" id="mfa-submit">Confirm it’s you</button>
-        <form id="form-otp" hidden>
-          <p class="hint">Test environment: this user has no passkey. Enter the test code.</p>
-          <label for="otp">Test code</label>
-          <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required>
-          <button type="submit" id="otp-submit">Verify code</button>
-        </form>
-        <p class="hint" id="mfa-wait" hidden></p>
-        <p class="back"><a href="#" id="challenge-restart">Use a different account</a></p>
-      </section>
+        <section id="panel-credentials">
+          <h1 id="credentials-title">Iniciá sesión</h1>
+          <p class="lede" id="credentials-lede"></p>
+          <form id="form-login" autocomplete="on">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="username" required>
+            <label for="password">Contraseña</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <p class="form-error" id="login-error" hidden></p>
+            <button type="submit" id="login-submit">Continuar</button>
+          </form>
+        </section>
 
-      <section id="panel-blocked" hidden>
-        <h1>Sign-in blocked</h1>
-        <p class="lede">This sign-in was rejected. No session was created.</p>
-        <p class="back"><a href="#" id="blocked-restart">Try again</a></p>
-      </section>
+        {#- While the engine decides: the mark's ring dims and a light runs around it. #}
+        <section id="panel-checking" hidden aria-live="polite">
+          <svg class="lock" viewBox="380 200 500 680" width="56" height="76" aria-hidden="true">
+            <defs>
+              <linearGradient id="lk-sh" gradientUnits="userSpaceOnUse" x1="520" y1="300" x2="770" y2="455"><stop offset="0" stop-color="#17A2FF"/><stop offset="1" stop-color="#1466E5"/></linearGradient>
+              <linearGradient id="lk-rg" gradientUnits="userSpaceOnUse" x1="805" y1="470" x2="480" y2="815"><stop offset="0" stop-color="#1A8CFA"/><stop offset=".5" stop-color="#1150B0"/><stop offset="1" stop-color="#152953"/></linearGradient>
+            </defs>
+            <path d="M467 565V414.5a157.75 157.75 0 0 1 315.5 0 39 39 0 0 1-78 0 79.75 79.75 0 0 0-159.5 0V565Z" fill="url(#lk-sh)"/>
+            <circle class="ring" cx="628" cy="646" r="149.25" fill="none" stroke="url(#lk-rg)" stroke-width="83.5"/>
+            <circle class="scan" cx="628" cy="646" r="149.25"/>
+            <path class="keyhole" d="M595 633a32 32 0 1 1 49.5 26.24l9 44.76q0 4-4 4h-45q-4 0-4-4l9-44.76A32 32 0 0 1 595 633Z"/>
+          </svg>
+          <p class="checking-text">Verificando…</p>
+        </section>
 
-      <section id="panel-denied" hidden>
-        <h1>No access to this app</h1>
-        <p class="lede">Credentials were accepted, but none of your groups holds a role on this application. Ask an operator to assign you one — this is not a risk block.</p>
-        <p class="back"><a href="#" id="denied-restart">Try again</a></p>
-      </section>
+        <section id="panel-challenge" hidden>
+          <h1 id="challenge-title">Confirmá que sos vos</h1>
+          <p class="lede" id="challenge-lede">Con la passkey de este dispositivo.</p>
+          <p class="hint" id="mfa-inapp" hidden></p>
+          <p class="form-error" id="mfa-error" hidden></p>
+          <button type="button" id="mfa-submit">Usar passkey</button>
+          <form id="form-otp" hidden>
+            <p class="hint">Entorno de prueba: este usuario no tiene passkey.</p>
+            <label for="otp">Código de prueba</label>
+            <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required>
+            <button type="submit" id="otp-submit">Verificar</button>
+          </form>
+          <p class="hint" id="mfa-wait" hidden></p>
+          <p class="back"><a href="#" id="challenge-restart">Usar otra cuenta</a></p>
+        </section>
 
-      <section id="panel-nofactor" hidden>
-        <h1>We couldn’t verify it’s you</h1>
-        <p class="lede">This sign-in needs a passkey, and your account doesn’t have one yet. Contact support for an activation code.</p>
-        <p class="back"><a href="/activate">I have an activation code</a> · <a href="#" id="nofactor-restart">Back</a></p>
-      </section>
+        {#- Non-disclosing (ADR-0023): no score, no reason. #}
+        <section id="panel-blocked" hidden>
+          <h1>No pudimos iniciar tu sesión</h1>
+          <p class="lede">Si creés que es un error, contactá a soporte.</p>
+          <p class="back"><a href="#" id="blocked-restart">Volver</a></p>
+        </section>
 
-      <section id="panel-offer" hidden>
-        <h1>Add a passkey</h1>
-        <p class="lede">Next time a sign-in looks unusual, you’ll confirm it with this device instead of being locked out.</p>
-        <p class="hint" id="offer-inapp" hidden></p>
-        <p class="form-error" id="offer-error" hidden></p>
-        <button type="button" id="offer-add">Add passkey</button>
-        <p class="hint" id="offer-wait" hidden></p>
-        <p class="back"><a href="#" id="offer-skip">Not now</a></p>
-      </section>
+        <section id="panel-denied" hidden>
+          <h1>Sin acceso a esta aplicación</h1>
+          <p class="lede">Pedile acceso a un administrador.</p>
+          <p class="back"><a href="#" id="denied-restart">Volver</a></p>
+        </section>
 
-      <section id="panel-session" hidden>
-        <h1>Signed in</h1>
-        <p class="lede" id="session-lede"></p>
-        <dl class="facts" id="session-facts"></dl>
-        <form id="form-logout">
-          <button type="submit" class="secondary" id="logout-submit">Sign out</button>
-        </form>
-      </section>
+        <section id="panel-nofactor" hidden>
+          <h1>Necesitás una passkey</h1>
+          <p class="lede">Pedile un código de activación a soporte.</p>
+          <p class="back"><a href="/activate">Tengo un código</a> · <a href="#" id="nofactor-restart">Volver</a></p>
+        </section>
 
-      <section id="panel-unavailable" hidden>
-        <h1>Sign-in unavailable</h1>
-        <p class="lede">This IdP did not answer. Nothing was decided and no session was created — try again in a moment.</p>
-        <p class="back"><a href="#" id="unavailable-restart">Try again</a></p>
-      </section>
-    </main>
+        <section id="panel-offer" hidden>
+          <h1>Agregá una passkey</h1>
+          <p class="lede">Para confirmar con este dispositivo cuando algo se vea distinto.</p>
+          <p class="hint" id="offer-inapp" hidden></p>
+          <p class="form-error" id="offer-error" hidden></p>
+          <button type="button" id="offer-add">Agregar passkey</button>
+          <p class="hint" id="offer-wait" hidden></p>
+          <p class="back"><a href="#" id="offer-skip">Ahora no</a></p>
+        </section>
 
-    <p class="foot">passwords stay on this idp · scoring delegated to the pdp · <a href="https://db-ip.com" rel="noopener">IP geolocation by DB-IP</a></p>
+        <section id="panel-session" hidden>
+          <h1>Sesión iniciada</h1>
+          <p class="lede" id="session-lede"></p>
+          <dl class="facts" id="session-facts"></dl>
+          <form id="form-logout">
+            <button type="submit" class="secondary" id="logout-submit">Cerrar sesión</button>
+          </form>
+        </section>
+
+        <section id="panel-unavailable" hidden>
+          <h1>No disponible</h1>
+          <p class="lede">Probá de nuevo en un momento.</p>
+          <p class="back"><a href="#" id="unavailable-restart">Reintentar</a></p>
+        </section>
+      </main>
+
+      <footer class="foot">
+        {%- if look == 'tenant' %}
+        <span class="seal"><img src="/static/brand/favicon.svg?v={{ v }}" alt="" width="14" height="14">Protegido por RokuSec</span>
+        {%- endif %}
+        <a href="https://db-ip.com" rel="noopener">Geolocalización IP por DB-IP</a>
+      </footer>
+    </div>
   </div>
 
   <script type="application/json" id="boot">{{ boot | tojson }}</script>

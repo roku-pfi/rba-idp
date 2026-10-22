@@ -80,6 +80,10 @@ def hosted_boot(
     tenant_name: str | None = None
     unknown = not console
     registered: str | None = None
+    # Which login the person sees (ADR-0036): the console's is RokuSec's, dark
+    # like the console; an application's follows its tenant's branding.
+    look = "console" if console else "rokusec"
+    branding: dict | None = None
     if not console and app_id:
         factory = request.app.state.session_factory
         with session_scope(factory) as session:
@@ -90,6 +94,14 @@ def hosted_boot(
                 tenant_name = tenant.display_name if tenant is not None else None
                 unknown = False
                 registered = row.redirect_uri
+                if tenant is not None:
+                    look = "tenant" if tenant.login_style == "tenant" else "rokusec"
+                    branding = {
+                        "display_name": tenant.display_name,
+                        "logo_url": tenant.logo_url,
+                        "primary": tenant.primary_colour,
+                        "accent": tenant.accent_colour,
+                    }
     settings: Settings = request.app.state.settings
     ip = scored_ip(client_ip(request, settings), private_is_home=settings.private_ip_is_home)
     ticket_text = request.query_params.get("simulation_ticket")
@@ -126,6 +138,8 @@ def hosted_boot(
         # Local development only (never in the cloud, C-1): a user with no
         # passkey can pass a step-up with the fixed test code on this page.
         "mock_otp": settings.mock_otp_enabled,
+        "look": look,
+        "branding": branding,
     }
 
 
