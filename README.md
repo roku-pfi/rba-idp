@@ -277,6 +277,9 @@ kubectl exec deploy/idp -- python -m rba_idp.activation juan@rokusec.example --t
 | `CLIENT_IP_HEADER` | `x-forwarded-for` | `cloudfront-viewer-address` behind CloudFront (XFF's right-most hop there is the edge) |
 | `TRUST_CLIENT_REPORTED_IP` | `true` | accept `ip_address` from the login body (local walkthrough). Off in the cloud: the address is the request's |
 | `PRIVATE_IP_IS_HOME` | `true` | score private peers as the demo home. Off in the cloud |
+| `GEOIP_COUNTRY_DB` / `GEOIP_ASN_DB` | *(empty)*; image: `/opt/geoip/dbip-*-lite.mmdb` | DB-IP Lite (IPv4 + IPv6, CC BY 4.0). Empty: TEST-NET table only. Local copy: `python scripts/fetch_geoip.py .geoip` |
+| `SIMULATION_SECRET` | *(empty)* | lets `POST /simulation/ticket` (header `X-RokuSec-Simulation-Secret`) sign a country/ASN override. Where client signals are not trusted, that ticket is the only override; the decision is marked `simulated` |
+| `SIMULATION_TTL_SECONDS` | `600` | ticket lifetime |
 | `DATABASE_URL` | `postgresql+psycopg://rba:rba@localhost:5432/rba_idp` | |
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
 | `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |

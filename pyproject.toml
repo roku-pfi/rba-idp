@@ -21,7 +21,8 @@ dependencies = [
     "httpx>=0.27",
     "jinja2>=3.1",
     "webauthn>=2.2,<3",
-    "rba-contracts>=0.9.0",
+    "maxminddb>=2.5",
+    "rba-contracts>=0.11.0",
 ]
 
 [project.optional-dependencies]

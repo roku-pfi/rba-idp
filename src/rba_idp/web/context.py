@@ -10,6 +10,7 @@ from rba_idp.config import Settings
 from rba_idp.db.models import Application, Tenant
 from rba_idp.db.session import session_scope
 from rba_idp.geo import resolve_login_signals, scored_ip
+from rba_idp.simulation import verify_ticket
 
 
 def _parse_ip(value: str) -> str | None:
@@ -91,11 +92,18 @@ def hosted_boot(
                 registered = row.redirect_uri
     settings: Settings = request.app.state.settings
     ip = scored_ip(client_ip(request, settings), private_is_home=settings.private_ip_is_home)
-    signals = resolve_login_signals(
-        ip,
-        country=request.query_params.get("country"),
-        asn=request.query_params.get("asn"),
-    )
+    ticket_text = request.query_params.get("simulation_ticket")
+    if settings.trust_client_reported_ip:
+        country, asn = request.query_params.get("country"), request.query_params.get("asn")
+        ticket_text = None
+    else:
+        # ADR-0032: `?country=` from the URL is ignored here; only a signed
+        # ticket can change the signals, and it travels on to POST /login.
+        ticket = verify_ticket(settings.simulation_secret, ticket_text)
+        country, asn = (ticket.country, ticket.asn) if ticket else (None, None)
+        if ticket is None:
+            ticket_text = None
+    signals = resolve_login_signals(ip, country=country, asn=asn)
     requested = request.query_params.get("redirect_uri")
     if registered and (not requested or requested == registered):
         redirect_uri = registered
@@ -113,6 +121,8 @@ def hosted_boot(
         "asn": signals.asn,
         "next": next_path or ("/admin" if console else None),
         "redirect_uri": redirect_uri,
+        "simulated": signals.simulated,
+        "simulation_ticket": ticket_text,
     }
 
 

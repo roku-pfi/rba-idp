@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from rba_idp.config import Settings
 
 AUTH = "d1fg623tjiucw7.cloudfront.net"
+
+# Cloud mode checks the GeoIP files exist; their contents do not matter here.
+_GEO = Path(tempfile.mkdtemp())
+for _name in ("country.mmdb", "asn.mmdb"):
+    (_GEO / _name).write_bytes(b"")
 
 CLOUD = {
     "deployment": "cloud",
@@ -22,6 +30,8 @@ CLOUD = {
     "client_ip_header": "cloudfront-viewer-address",
     "trust_client_reported_ip": False,
     "private_ip_is_home": False,
+    "geoip_country_db": str(_GEO / "country.mmdb"),
+    "geoip_asn_db": str(_GEO / "asn.mmdb"),
     "seed_bank_redirect_uri": "https://d3m6kfm1gma0g6.cloudfront.net/callback",
     "seed_kaze_redirect_uri": "https://d14wc5kuicqxf6.cloudfront.net/callback",
 }
@@ -52,6 +62,8 @@ def test_local_is_the_default_and_accepts_the_defaults() -> None:
         ({"trust_client_reported_ip": True}, "TRUST_CLIENT_REPORTED_IP"),
         ({"private_ip_is_home": True}, "PRIVATE_IP_IS_HOME"),
         ({"trusted_proxy_cidrs": ""}, "TRUSTED_PROXY_CIDRS"),
+        ({"geoip_asn_db": "/nonexistent/asn.mmdb"}, "GEOIP_ASN_DB"),
+        ({"simulation_secret": "short"}, "SIMULATION_SECRET"),
         ({"seed_bank_redirect_uri": "http://localhost:8002/callback"}, "SEED_BANK_REDIRECT_URI"),
     ],
 )

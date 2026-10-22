@@ -856,6 +856,10 @@ export default function App() {
           </div>
         </section>
       )}
+      {/* CC BY 4.0 attribution for the IP → country/ASN data (ADR-0032). */}
+      <p className="muted" style={{ marginTop: "2rem", fontSize: "0.8rem" }}>
+        <a href="https://db-ip.com" rel="noopener">IP geolocation by DB-IP</a>
+      </p>
     </div>
   );
 }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -44,6 +45,15 @@ class Settings(BaseSettings):
     # looks usual. In the cloud a private address means the client IP was not
     # resolved, and must not look like home.
     private_ip_is_home: bool = True
+
+    # C-3 / ADR-0032: DB-IP Lite MMDB files (baked into the image). Empty or
+    # missing → the TEST-NET table only, as in tests.
+    geoip_country_db: str = ""
+    geoip_asn_db: str = ""
+    # Signs simulation tickets (presenter override). Empty: no simulation
+    # where client signals are not trusted.
+    simulation_secret: str = ""
+    simulation_ttl_seconds: int = 10 * 60
 
     database_url: str = "postgresql+psycopg://rba:rba@localhost:5432/rba_idp"
     # When true, use in-memory SQLite (unit tests / no Docker).
@@ -136,6 +146,12 @@ def cloud_problems(s: Settings) -> list[str]:
         problems.append("PRIVATE_IP_IS_HOME is on: an unresolved address would score as home")
     if not s.trusted_proxy_cidrs.strip():
         problems.append("TRUSTED_PROXY_CIDRS is empty: every login would carry the ALB's address")
+    for name in ("geoip_country_db", "geoip_asn_db"):
+        path = getattr(s, name)
+        if not path or not Path(path).is_file():
+            problems.append(f"{name.upper()} is not a readable file: real logins would carry no country/ASN")
+    if s.simulation_secret and len(s.simulation_secret) < 32:
+        problems.append("SIMULATION_SECRET must be a generated secret (≥ 32 chars) or empty")
     if s.mock_otp_enabled:
         problems.append("MOCK_OTP_ENABLED is on: a fixed code would pass every step-up")
     if "rba:rba@" in s.database_url or _is_local(s.database_url):

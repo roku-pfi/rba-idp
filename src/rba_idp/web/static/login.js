@@ -263,6 +263,7 @@
       // operator's tenant from the email's domain (ADR-0033).
       if (!boot.console) payload.application_id = boot.application_id;
       if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
+      if (boot.simulation_ticket && !boot.console) payload.simulation_ticket = boot.simulation_ticket;
       const resp = await fetch(boot.console ? "/console/login" : "/login", {
         method: "POST",
         headers: { "content-type": "application/json" },

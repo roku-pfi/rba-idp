@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -51,6 +53,8 @@ from rba_contracts import (
     RolePublic,
     SessionResponse,
     SetRolePermissionsRequest,
+    SimulationTicketRequest,
+    SimulationTicketResponse,
     TenantPolicy,
     TenantPublic,
 )
@@ -58,6 +62,8 @@ from rba_contracts import (
 from rba_idp.clients import AuditClient, HttpAuditClient, HttpPolicyClient, PolicyClient
 from rba_idp.config import Settings, get_settings
 from rba_idp.db.session import create_tables, make_engine, make_session_factory
+from rba_idp.geo import configure_geoip
+from rba_idp.simulation import issue_ticket, verify_ticket
 from rba_idp.pdp import HttpPdpClient, PdpClient
 from rba_idp.seed import seed_identity
 from rba_idp.services.admin import (
@@ -115,6 +121,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logging.basicConfig(level=logging.INFO)
+        geo = configure_geoip(settings.geoip_country_db, settings.geoip_asn_db)
+        logger.info("GeoIP: %s", "DB-IP Lite loaded" if geo.loaded else "TEST-NET table only")
         engine = make_engine(settings.database_url, memory=settings.use_memory_db)
         create_tables(engine)
         session_factory = make_session_factory(engine)
@@ -274,6 +282,25 @@ def create_app(
     def activate_verify(body: ActivationVerifyRequest, request: Request) -> Response:
         _enroll(request).activation_verify(body)
         return Response(status_code=204)
+
+    @app.post("/simulation/ticket", response_model=SimulationTicketResponse)
+    def simulation_ticket(
+        body: SimulationTicketRequest,
+        secret: Annotated[str | None, Header(alias="X-RokuSec-Simulation-Secret")] = None,
+    ) -> SimulationTicketResponse:
+        """Presenter only (ADR-0032). Same 404 whether disabled or the secret is wrong."""
+        configured = settings.simulation_secret
+        if not configured or not secret or not hmac.compare_digest(secret, configured):
+            raise HTTPException(status_code=404, detail="not found")
+        ticket, expires = issue_ticket(
+            configured,
+            country=body.country.upper() if body.country else None,
+            asn=body.asn,
+            ttl_seconds=settings.simulation_ttl_seconds,
+        )
+        return SimulationTicketResponse(
+            ticket=ticket, expires_at=datetime.fromtimestamp(expires, tz=timezone.utc)
+        )
 
     @app.get("/session", response_model=SessionResponse)
     def get_session(
@@ -638,12 +665,24 @@ def create_app(
 
 
 def _observed(body, request: Request):
-    """Score the address the request came from, not the one the body claims
-    (ADR-0032) — unless this deployment trusts client-reported addresses."""
+    """Score what the request shows, not what the body claims (ADR-0032).
+
+    Where client-reported signals are not trusted (the cloud): the address is
+    the request's, and a country/ASN override counts only inside a valid
+    simulation ticket — otherwise it is dropped.
+    """
     settings: Settings = request.app.state.settings
     if settings.trust_client_reported_ip:
         return body
-    return body.model_copy(update={"ip_address": client_ip(request, settings)})
+    ticket = verify_ticket(settings.simulation_secret, getattr(body, "simulation_ticket", None))
+    update = {
+        "ip_address": client_ip(request, settings),
+        "country": ticket.country if ticket else None,
+        "asn": ticket.asn if ticket else None,
+    }
+    if hasattr(body, "simulation_ticket"):
+        update["simulation_ticket"] = None
+    return body.model_copy(update=update)
 
 
 def _run(request: Request, op):

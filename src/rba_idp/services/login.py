@@ -287,6 +287,7 @@ class LoginService:
             browser=attempt.browser,
             login_successful=True,
             user_agent=attempt.user_agent,
+            simulated=signals.simulated,
         )
         try:
             decision = self._pdp.evaluate(request)
@@ -391,6 +392,7 @@ class LoginService:
                     browser=attempt.browser,
                     login_successful=False,
                     user_agent=attempt.user_agent,
+                    simulated=signals.simulated,
                 )
             )
         except Exception:

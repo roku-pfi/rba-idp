@@ -1,13 +1,26 @@
-"""Local IP → country/ASN for the hosted login path (Demo-1).
+"""Client IP → country/ASN for the login path (ADR-0022, ADR-0032).
 
-Not MaxMind and not city GeoIP (ADR-0022). Documentation prefixes plus an
-explicit query override so a presenter can set country without a GeoIP product.
+Three sources, in order:
+
+1. The RFC 5737 TEST-NET table — demo and test stand-ins for home / far / EU.
+2. **DB-IP Lite** (country + ASN, IPv4 and IPv6, CC BY 4.0), two MMDB files
+   baked into the image. An in-memory read: no network call inside the login.
+3. Nothing: a missing country/ASN, which the features treat as not-seen.
+
+An explicit override (presenter) beats all three, and marks the login
+``simulated`` when it changes what the address says.
+
+IP geolocation by DB-IP (https://db-ip.com), licensed CC BY 4.0.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import logging
 from dataclasses import dataclass
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # RFC 5737 TEST-NETs — mapped to demo home / far / EU so travel can be exercised.
 _PREFIXES: tuple[tuple[ipaddress.IPv4Network, str, str], ...] = (
@@ -23,6 +36,53 @@ HOME_IP = "203.0.113.10"
 class LoginSignals:
     country: str | None
     asn: str | None
+    # An override changed the country or ASN the address resolves to.
+    simulated: bool = False
+
+
+class GeoDatabase:
+    """DB-IP Lite country + ASN readers. Either file may be absent (local dev,
+    tests): lookups then fall back to the TEST-NET table alone."""
+
+    def __init__(self, country_path: str = "", asn_path: str = "") -> None:
+        self._country = _open(country_path)
+        self._asn = _open(asn_path)
+
+    @property
+    def loaded(self) -> bool:
+        return self._country is not None and self._asn is not None
+
+    def lookup(self, addr: str) -> LoginSignals:
+        country = asn = None
+        if self._country is not None:
+            record = self._country.get(addr) or {}
+            country = normalize_country((record.get("country") or {}).get("iso_code"))
+        if self._asn is not None:
+            record = self._asn.get(addr) or {}
+            number = record.get("autonomous_system_number")
+            asn = str(number) if number else None
+        return LoginSignals(country=country, asn=asn)
+
+
+def _open(path: str):
+    if not path:
+        return None
+    if not Path(path).is_file():
+        logger.warning("GeoIP database not found: %s", path)
+        return None
+    import maxminddb
+
+    return maxminddb.open_database(path, maxminddb.MODE_MEMORY)
+
+
+_db = GeoDatabase()
+
+
+def configure_geoip(country_path: str, asn_path: str) -> GeoDatabase:
+    """Load the DB-IP files once at startup; the login path only reads."""
+    global _db
+    _db = GeoDatabase(country_path, asn_path)
+    return _db
 
 
 def normalize_country(value: str | None) -> str | None:
@@ -49,12 +109,13 @@ def lookup_ip(ip: str) -> LoginSignals:
         addr = ipaddress.ip_address(ip.strip())
     except ValueError:
         return LoginSignals(country=None, asn=None)
-    if not isinstance(addr, ipaddress.IPv4Address):
+    if isinstance(addr, ipaddress.IPv4Address):
+        for network, country, asn in _PREFIXES:
+            if addr in network:
+                return LoginSignals(country=country, asn=asn)
+    if is_unroutable(str(addr)):
         return LoginSignals(country=None, asn=None)
-    for network, country, asn in _PREFIXES:
-        if addr in network:
-            return LoginSignals(country=country, asn=asn)
-    return LoginSignals(country=None, asn=None)
+    return _db.lookup(str(addr))
 
 
 _ULA = ipaddress.ip_network("fc00::/7")
@@ -105,9 +166,17 @@ def resolve_login_signals(
     country: str | None = None,
     asn: str | None = None,
 ) -> LoginSignals:
-    """Explicit override wins; otherwise the local prefix table; else missing."""
+    """Explicit override wins; otherwise the address's own signals; else missing.
+
+    ``simulated`` is set only when an override actually changes something: the
+    local bank pins the home country on every login, which equals what the
+    home address resolves to and is not a simulation.
+    """
     looked = lookup_ip(ip)
+    final_country = normalize_country(country) or looked.country
+    final_asn = normalize_asn(asn) or looked.asn
     return LoginSignals(
-        country=normalize_country(country) or looked.country,
-        asn=normalize_asn(asn) or looked.asn,
+        country=final_country,
+        asn=final_asn,
+        simulated=(final_country, final_asn) != (looked.country, looked.asn),
     )
