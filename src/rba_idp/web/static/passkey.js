@@ -66,5 +66,37 @@
     return payload;
   }
 
-  window.RbaPasskey = { b64urlToBuf, bufToB64url, publicKeyFromJson, credentialToJson };
+  // In-app browsers (a link opened from WhatsApp, Instagram, Gmail…) often
+  // accept the WebAuthn call and then never show the passkey prompt.
+  function inAppBrowser(ua = navigator.userAgent || "") {
+    return /FBAN|FBAV|Instagram|WhatsApp|Telegram|Line\/|GSA\/|; wv\)|LinkedInApp|Twitter/i.test(ua);
+  }
+
+  const HINT =
+    "If no prompt appears, open this page in Safari or Chrome directly — not inside another app — and check that passkeys are on in your phone's password settings.";
+
+  // While the browser's prompt is (or should be) on screen. Without it, a
+  // prompt that never appears looks like a dead button.
+  function waiting(el, on) {
+    if (!el) return;
+    el.hidden = !on;
+    el.textContent = on ? `Waiting for your device… ${HINT}` : "";
+  }
+
+  // Shown before the tap when the page can tell it is in an in-app browser.
+  function warnInApp(el) {
+    if (!el || !inAppBrowser()) return;
+    el.hidden = false;
+    el.textContent = `This looks like an in-app browser, where passkeys often do not work. ${HINT}`;
+  }
+
+  window.RbaPasskey = {
+    b64urlToBuf,
+    bufToB64url,
+    publicKeyFromJson,
+    credentialToJson,
+    inAppBrowser,
+    waiting,
+    warnInApp,
+  };
 })();

@@ -36,8 +36,10 @@
       <section id="panel-challenge" hidden>
         <h1 id="challenge-title">Confirm it’s you</h1>
         <p class="lede" id="challenge-lede">Use this device to confirm the sign-in.</p>
+        <p class="hint" id="mfa-inapp" hidden></p>
         <p class="form-error" id="mfa-error" hidden></p>
         <button type="button" id="mfa-submit">Confirm it’s you</button>
+        <p class="hint" id="mfa-wait" hidden></p>
         <p class="back"><a href="#" id="challenge-restart">Use a different account</a></p>
       </section>
 
@@ -62,8 +64,10 @@
       <section id="panel-offer" hidden>
         <h1>Add a passkey</h1>
         <p class="lede">Next time a sign-in looks unusual, you’ll confirm it with this device instead of being locked out.</p>
+        <p class="hint" id="offer-inapp" hidden></p>
         <p class="form-error" id="offer-error" hidden></p>
         <button type="button" id="offer-add">Add passkey</button>
+        <p class="hint" id="offer-wait" hidden></p>
         <p class="back"><a href="#" id="offer-skip">Not now</a></p>
       </section>
 

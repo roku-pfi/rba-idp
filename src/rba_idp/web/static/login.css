@@ -231,3 +231,11 @@ button.reveal:focus-visible {
   color: var(--ink);
   background: var(--accent-soft);
 }
+
+/* Passkey prompt status and in-app-browser warning (passkey.js). */
+.hint {
+  margin: 0.8rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}

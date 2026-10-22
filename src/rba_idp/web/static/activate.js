@@ -6,7 +6,8 @@
 // the first tap checks the code and fetches the options, and the second tap
 // goes directly to create().
 (() => {
-  const { publicKeyFromJson, credentialToJson } = window.RbaPasskey;
+  const { publicKeyFromJson, credentialToJson, waiting, warnInApp } = window.RbaPasskey;
+  const wait = document.getElementById("create-wait");
   let code = "";
   let publicKey = null;
 
@@ -45,6 +46,7 @@
       publicKey = publicKeyFromJson((await resp.json()).public_key);
       setError("create-error", "");
       show("panel-create");
+      warnInApp(document.getElementById("create-inapp"));
     } catch {
       setError("activate-error", "Couldn't reach the server. Try again.");
     } finally {
@@ -59,7 +61,10 @@
     setError("create-error", "");
     try {
       // First thing in the tap handler: nothing awaited before it.
-      const cred = await navigator.credentials.create({ publicKey });
+      const pending = navigator.credentials.create({ publicKey });
+      waiting(wait, true);
+      const cred = await pending;
+      waiting(wait, false);
       const resp = await fetch("/activate/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -71,6 +76,7 @@
       }
       show("panel-done");
     } catch (err) {
+      waiting(wait, false);
       const name = err && err.name ? err.name : "Error";
       setError(
         "create-error",

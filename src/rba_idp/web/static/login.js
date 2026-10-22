@@ -102,6 +102,7 @@
       document.getElementById("mfa-submit").dataset.challengeId = body.challenge_id;
       setError("mfa-error", "");
       show("challenge");
+      warnInApp(document.getElementById("mfa-inapp"));
       prepareStepUp(body.challenge_id);
       return;
     }
@@ -113,6 +114,7 @@
         pendingLogin = body;
         setError("offer-error", "");
         show("offer");
+        warnInApp(document.getElementById("offer-inapp"));
         prepareOffer();
         return;
       }
@@ -249,7 +251,10 @@
     try {
       if (!offerKey) return;
       // First thing in the tap handler: nothing awaited before it.
-      const cred = await navigator.credentials.create({ publicKey: offerKey });
+      const pending = navigator.credentials.create({ publicKey: offerKey });
+      waiting(document.getElementById("offer-wait"), true);
+      const cred = await pending;
+      waiting(document.getElementById("offer-wait"), false);
       const resp = await fetch("/passkeys/verify", {
         method: "POST",
         headers: { "content-type": "application/json", ...authHeader() },
@@ -261,6 +266,7 @@
       }
       continueAfterLogin(pendingLogin);
     } catch (err) {
+      waiting(document.getElementById("offer-wait"), false);
       setError(
         "offer-error",
         err && err.name === "NotAllowedError"
@@ -284,7 +290,7 @@
   document.getElementById("credentials-lede").textContent =
     "This page is hosted by the IdP. The application never sees your password.";
 
-  const { publicKeyFromJson, credentialToJson } = window.RbaPasskey;
+  const { publicKeyFromJson, credentialToJson, waiting, warnInApp } = window.RbaPasskey;
 
   document.getElementById("form-login").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -337,7 +343,10 @@
     try {
       // First thing in the tap handler: nothing awaited before it. The same
       // options serve a retry: the challenge stays open until it succeeds.
-      const cred = await navigator.credentials.get({ publicKey: stepUpKey });
+      const pending = navigator.credentials.get({ publicKey: stepUpKey });
+      waiting(document.getElementById("mfa-wait"), true);
+      const cred = await pending;
+      waiting(document.getElementById("mfa-wait"), false);
       if (!cred) {
         setError("mfa-error", "Confirmation was cancelled.");
         return;
@@ -363,6 +372,7 @@
       }
       applyOutcome(body, resp.status);
     } catch (err) {
+      waiting(document.getElementById("mfa-wait"), false);
       if (err && err.name === "NotAllowedError") {
         setError("mfa-error", "Confirmation was cancelled.");
       } else {
