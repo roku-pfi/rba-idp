@@ -32,7 +32,7 @@
     <div class="pane">
       <header class="brand">
         {%- if look == 'tenant' %}
-        {%- if b.logo_url %}<img class="t-logo-sm" src="{{ b.logo_url }}" alt="{{ b.display_name }}">{% else %}<span class="t-mono-sm" aria-hidden="true">{{ b.display_name[:1] | upper }}</span><span class="t-name-sm">{{ b.display_name }}</span>{% endif %}
+        {%- if b.logo_url %}<img class="t-logo-sm" src="{{ b.logo_url }}" alt="">{% else %}<span class="t-mono-sm" aria-hidden="true">{{ b.display_name[:1] | upper }}</span>{% endif %}<span class="t-name-sm">{{ b.display_name }}</span>
         {%- elif look == 'console' %}
         <img class="brand-logo" src="/static/brand/rokusec-logo-horizontal-inverse.svg?v={{ v }}" alt="RokuSec" width="82" height="36">
         {%- else %}

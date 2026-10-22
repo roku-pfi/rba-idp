@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from urllib.parse import urlsplit
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -289,6 +291,9 @@ class _SeedTenant:
     login_style: str = "rokusec"
     primary_colour: str = "#1466E5"
     accent_colour: str = "#152953"
+    # Logo served by the tenant's own application, as a path on the origin of
+    # this redirect setting's URL (the app knows its brand; the IdP links it).
+    logo: tuple[str, str] | None = None
     # (application_id, name, redirect setting name or None)
     apps: tuple[tuple[str, str, str | None], ...] = ()
     # application_id → permissions
@@ -341,6 +346,7 @@ SEED_TENANTS: tuple[_SeedTenant, ...] = (
         login_style="tenant",
         primary_colour="#0B6E4F",
         accent_colour="#073B2A",
+        logo=("seed_bank_redirect_uri", "/static/brand/roku-bank-mark.svg"),
         apps=(("roku-bank-web", "Roku Bank", "seed_bank_redirect_uri"),),
         permissions={"roku-bank-web": BANK_PERMISSIONS},
         roles=(
@@ -412,6 +418,10 @@ def seed_identity(session: Session, settings: Settings) -> None:
             primary_colour=spec.primary_colour,
             accent_colour=spec.accent_colour,
         )
+        if spec.logo and tenant.logo_url is None:
+            setting, path = spec.logo
+            origin = urlsplit(getattr(settings, setting))
+            tenant.logo_url = f"{origin.scheme}://{origin.netloc}{path}"
         for domain in spec.domains:
             _ensure_domain(session, spec.tenant_id, domain)
         bootstrap_console(session, tenant)

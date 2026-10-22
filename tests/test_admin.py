@@ -296,6 +296,8 @@ def test_the_login_looks_like_where_you_are_going(client: TestClient) -> None:
     assert 'data-look="tenant"' in bank
     assert "--t-primary:" in bank
     assert "Protegido por RokuSec" in bank
+    # The bank's own mark, served by the bank (B-3).
+    assert "localhost:8002/static/brand/roku-bank-mark.svg" in bank
     assert "Protegido por RokuSec" not in kaze
 
 
