@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
-from fastapi.testclient import TestClient
+import os
 
-from rba_idp.main import create_app
-from tests.helpers import StubAudit, StubPdp, StubPolicy, test_settings
+# Before rba_idp is imported: the module reads it once.
+os.environ.setdefault("BCRYPT_ROUNDS", "4")
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from rba_idp.main import create_app  # noqa: E402
+from tests.helpers import StubAudit, StubPdp, StubPolicy, test_settings  # noqa: E402
 
 
 @pytest.fixture

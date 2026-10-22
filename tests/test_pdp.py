@@ -15,8 +15,9 @@ from rba_idp.pdp import HttpPdpClient, PdpUnavailable
 def _request() -> RiskEvaluateRequest:
     return RiskEvaluateRequest(
         event_id=uuid4(),
-        application_id="demo-banking-app",
-        user_id="usr_demo",
+        tenant_id="roku-bank",
+        application_id="roku-bank-web",
+        user_id="usr_rb_martin",
         timestamp=datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc),
         ip_address="203.0.113.10",
         login_successful=True,
@@ -29,6 +30,8 @@ def _ok_body(event_id: str) -> dict:
         "risk_score": 0.61,
         "risk_level": RiskLevel.MEDIUM.value,
         "action": Action.REQUIRE_MFA.value,
+        "enforced_action": Action.REQUIRE_MFA.value,
+        "engine_mode": "ACTIVE",
         "reasons": [
             Reason(
                 code="signal_novel",
@@ -60,7 +63,7 @@ def test_posts_json_to_risk_evaluate() -> None:
     req = _request()
     decision = client.evaluate(req)
     assert captured["url"] == "http://pdp.test/risk/evaluate"
-    assert captured["body"]["user_id"] == "usr_demo"
+    assert captured["body"]["user_id"] == "usr_rb_martin"
     assert captured["body"]["login_successful"] is True
     assert "password" not in captured["body"]
     assert decision.action == Action.REQUIRE_MFA

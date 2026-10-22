@@ -169,7 +169,9 @@
     return;
   }
 
-  const appName = boot.application_name || boot.application_id;
+  const appName = boot.tenant_name && boot.tenant_name !== boot.application_name
+    ? `${boot.application_name} · ${boot.tenant_name}`
+    : boot.application_name || boot.application_id;
   document.getElementById("credentials-title").textContent = `Sign in to ${appName}`;
   document.getElementById("credentials-lede").textContent =
     "This page is hosted by the IdP. The application never sees your password.";
@@ -249,14 +251,16 @@
       const payload = {
         email: document.getElementById("email").value,
         password: document.getElementById("password").value,
-        application_id: boot.application_id,
         ip_address: boot.ip_address,
         country: boot.country,
         asn: boot.asn,
         ...deviceHints(navigator.userAgent || ""),
       };
+      // The console login names no application: the server finds the
+      // operator's tenant from the email's domain (ADR-0033).
+      if (!boot.console) payload.application_id = boot.application_id;
       if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
-      const resp = await fetch("/login", {
+      const resp = await fetch(boot.console ? "/console/login" : "/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),

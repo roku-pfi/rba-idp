@@ -10,7 +10,7 @@ from rba_contracts import Action, LoginOutcome, RiskLevel
 
 from rba_idp.db.models import IdpSession
 from rba_idp.tokens import hash_session_token
-from tests.helpers import LOGIN, MOCK_OTP, REASON, StubPdp, client_for
+from tests.helpers import DIEGO, LOGIN, MOCK_OTP, REASON, StubPdp, client_for, console_token
 from tests.helpers import test_settings as make_settings
 
 
@@ -23,7 +23,7 @@ def test_allow_issues_session_and_calls_pdp(client: TestClient, pdp: StubPdp) ->
     assert resp.status_code == 200
     body = resp.json()
     assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
-    assert body["user_id"] == "usr_demo"
+    assert body["user_id"] == "usr_rb_martin"
     assert body["action"] == Action.ALLOW.value
     assert body["risk_score"] == 0.12
     assert body["risk_level"] == RiskLevel.LOW.value
@@ -34,8 +34,8 @@ def test_allow_issues_session_and_calls_pdp(client: TestClient, pdp: StubPdp) ->
     assert "challenge_id" not in body
     assert len(pdp.calls) == 1
     call = pdp.calls[0]
-    assert call.user_id == "usr_demo"
-    assert call.application_id == "demo-banking-app"
+    assert call.user_id == "usr_rb_martin"
+    assert call.application_id == "roku-bank-web"
     assert call.ip_address == "203.0.113.10"
     assert call.asn == "13335"
     assert call.country == "AR"
@@ -64,11 +64,11 @@ def test_session_token_is_stored_hashed(client: TestClient) -> None:
         row = session.get(IdpSession, hash_session_token(token))
         assert row is not None
         assert row.token_hash != token
-        assert row.user_id == "usr_demo"
+        assert row.user_id == "usr_rb_martin"
 
 
 def test_email_is_case_insensitive(client: TestClient, pdp: StubPdp) -> None:
-    payload = {**LOGIN, "email": "Demo@Example.COM"}
+    payload = {**LOGIN, "email": "Martin@Correo.EXAMPLE"}
     resp = client.post("/login", json=payload)
     assert resp.status_code == 200
     assert resp.json()["outcome"] == LoginOutcome.AUTHENTICATED.value
@@ -99,7 +99,7 @@ def test_pdp_action_maps_to_login_outcome(
     assert body["action"] == action.value
     assert body["risk_score"] == score
     assert body["risk_level"] == level.value
-    assert body["user_id"] == "usr_demo"
+    assert body["user_id"] == "usr_rb_martin"
     if action == Action.ALLOW:
         assert body["session"]["token"]
         assert "challenge_id" not in body
@@ -128,8 +128,8 @@ def test_wrong_password_is_reported_to_the_pdp_but_not_enforced(
     assert len(pdp.calls) == 1
     call = pdp.calls[0]
     assert call.login_successful is False
-    assert call.user_id == "usr_demo"
-    assert call.application_id == "demo-banking-app"
+    assert call.user_id == "usr_rb_martin"
+    assert call.application_id == "roku-bank-web"
     assert call.country == "AR"
 
 
@@ -251,36 +251,28 @@ def test_password_never_reaches_the_pdp(client: TestClient, pdp: StubPdp) -> Non
 def test_no_group_grant_is_access_denied_without_pdp(
     client: TestClient, pdp: StubPdp
 ) -> None:
-    payload = {**LOGIN, "application_id": "idp-admin-console"}
+    payload = {**LOGIN, "application_id": "roku-bank-console"}
     resp = client.post("/login", json=payload)
     assert resp.status_code == 200
     body = resp.json()
     assert body["outcome"] == LoginOutcome.ACCESS_DENIED.value
-    assert body["user_id"] == "usr_demo"
+    assert body["user_id"] == "usr_rb_martin"
     assert "session" not in body
     assert pdp.calls == []
 
 
 def test_ungrouped_user_cannot_log_in(client: TestClient, pdp: StubPdp) -> None:
-    token = client.post(
-        "/login",
-        json={
-            **LOGIN,
-            "email": "admin@example.com",
-            "password": "admin-password",
-            "application_id": "idp-admin-console",
-        },
-    ).json()["session"]["token"]
+    token = console_token(client, DIEGO)
     created = client.post(
         "/admin/api/users",
         headers={"Authorization": f"Bearer {token}"},
-        json={"email": "orphan@example.com", "password": "orphan-password"},
+        json={"email": "orphan@correo.example", "password": "orphan-password"},
     )
     assert created.status_code == 201
     before = len(pdp.calls)
     resp = client.post(
         "/login",
-        json={**LOGIN, "email": "orphan@example.com", "password": "orphan-password"},
+        json={**LOGIN, "email": "orphan@correo.example", "password": "orphan-password"},
     )
     assert resp.json()["outcome"] == LoginOutcome.ACCESS_DENIED.value
     assert len(pdp.calls) == before

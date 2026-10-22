@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import {
+  actingTenant,
   api,
   currentToken,
   logout,
   redirectToLogin,
+  switchTenant,
   type AdminUser,
   type Application,
   type Decision,
@@ -14,6 +16,7 @@ import {
   type RoleDetail,
   type SessionUser,
   type Tab,
+  type Tenant,
 } from "./api";
 
 const TABS: Tab[] = ["decisions", "policy", "users", "apps", "groups", "roles"];
@@ -37,6 +40,12 @@ export default function App() {
   // ADR-0029: the console is gated by permissions, not by the is_admin flag, so
   // a support operator can read decisions without being able to change them.
   const [granted, setGranted] = useState<string[]>([]);
+  // ADR-0033: the tenant this console is scoped to, and — for a platform
+  // operator only — every tenant, for the switcher.
+  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  // Bumped by the switcher so every tab reloads for the new tenant.
+  const [scope, setScope] = useState<string | null>(actingTenant());
   const canWrite = granted.includes("admin:write");
   const canPolicy = granted.includes("policy:write");
 
@@ -54,6 +63,12 @@ export default function App() {
         }
         setGranted(perms);
         setUser(session.user);
+        api<Tenant>("/admin/api/tenant").then(setTenant).catch(() => setTenant(null));
+        if (perms.includes("tenants:read")) {
+          // The server decides whether this is a platform operator; a 403 here
+          // simply means no switcher.
+          api<Tenant[]>("/admin/api/tenants").then(setTenants).catch(() => setTenants([]));
+        }
       })
       .catch((err: Error) => {
         if (err.message !== "unauthorized") setBootError(err.message);
@@ -98,14 +113,14 @@ export default function App() {
       }
     };
     load().catch((err: Error) => setError(err.message));
-  }, [user, tab]);
+  }, [user, tab, scope]);
 
   if (forbidden) {
     return (
       <div className="admin-shell">
         <section className="panel">
           <h1>Admin required</h1>
-          <p className="lede">This session is not an operator. Sign in as the seeded admin user.</p>
+          <p className="lede">This session is not a console session. Sign in at /console/login with an operator account.</p>
         </section>
       </div>
     );
@@ -132,9 +147,29 @@ export default function App() {
     <div className="admin-shell">
       <header className="admin-top">
         <div className="brand">
-          <p className="brand-mark">RBA Identity</p>
-          <p className="brand-sub">Admin</p>
+          <p className="brand-mark">RokuSec</p>
+          <p className="brand-sub">{tenant ? tenant.name : "Consola"}</p>
         </div>
+        {tenants.length > 0 && (
+          <select
+            aria-label="Organización"
+            value={tenant?.tenant_id ?? actingTenant() ?? user.tenant_id}
+            onChange={(event) => {
+              const next = event.target.value;
+              switchTenant(next === user.tenant_id ? null : next);
+              setScope(next);
+              setSelectedGroup(null);
+              setSelectedRole(null);
+              setTenant(tenants.find((item) => item.tenant_id === next) ?? null);
+            }}
+          >
+            {tenants.map((item) => (
+              <option key={item.tenant_id} value={item.tenant_id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="who">
           {user.email}
           {/* What this session actually holds. The answer to "why can I see this
@@ -199,9 +234,17 @@ export default function App() {
                     </td>
                     <td>
                       <span className={`badge ${item.risk_level}`}>{item.risk_level}</span>
-                      <span className={`badge ${item.action}`}>{item.action}</span>
+                      <span className={`badge ${item.enforced_action}`}>{item.enforced_action}</span>
+                      {item.action !== item.enforced_action && (
+                        // Monitor mode: what the engine would have done.
+                        <div className="muted">
+                          engine: <span className={`badge ${item.action}`}>{item.action}</span>
+                        </div>
+                      )}
                       <div className="muted">
-                        score {item.risk_score.toFixed(2)} · policy {item.policy_version}
+                        score {item.risk_score.toFixed(2)} · policy {item.policy_version} ·{" "}
+                        {item.engine_mode}
+                        {item.simulated ? " · simulated" : ""}
                       </div>
                     </td>
                     <td>

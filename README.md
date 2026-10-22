@@ -14,7 +14,14 @@ Hosted login at `GET /login`; admin console at `GET /admin`. No OIDC/SAML/SCIM
 [ADR-0019](../docs/decisions/0019-groups-grant-app-access.md),
 [ADR-0022](../docs/decisions/0022-product-demo-over-gitops.md)).
 
-Package version: **0.4.0**. Pins `rba-contracts` ≥ 0.6.0.
+**Multi-tenant** ([ADR-0033](../docs/decisions/0033-multi-tenancy.md)): every
+application, user, group and role belongs to one tenant. An app login takes its
+tenant from the application; the console login (`/console/login`) takes it from
+the operator's email domain. The IdP applies the PDP's `enforced_action`
+([ADR-0034](../docs/decisions/0034-base-policy-and-engine-mode.md)) and does
+not call the PDP at all for a tenant whose engine is `OFF`.
+
+Package version: **0.5.0**. Pins `rba-contracts` ≥ 0.9.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
 > ADRs: 0012–0026. AI: [`AGENTS.md`](AGENTS.md).
@@ -22,25 +29,29 @@ Package version: **0.4.0**. Pins `rba-contracts` ≥ 0.6.0.
 ## Request path
 
 ```
-browser  GET /login?application_id=demo-banking-app
+browser  GET /login?application_id=roku-bank-web
            → HTML (email / password / MFA / blocked / signed-in)
            → POST /login  (JSON; ip_address / country / asn from the page boot payload)
+browser  GET /console/login   (or GET / with no application)
+           → POST /console/login  (no application_id: the email domain picks the tenant)
 browser  GET /admin
-           → React SPA (after hosted login as admin)
-           → /admin/api/users|applications   (IdP DB)
-           → /admin/api/decisions            (proxy → decision-service GET /decisions)
-           → /admin/api/policy               (proxy → decision-service :8000)
+           → React SPA (after the console login)
+           → /admin/api/users|applications   (IdP DB, filtered by the operator's tenant)
+           → /admin/api/decisions            (proxy → decision-service GET /decisions?tenant_id=)
+           → /admin/api/policy               (proxy → decision-service /tenants/{id}/policy)
 client → POST /login
-           → lookup application (rba_idp)
-           → verify password (bcrypt)
+           → lookup application → its tenant (rba_idp)
+           → look the email up inside that tenant; verify password (bcrypt)
            → require a role on this application (ADR-0029)
-           → POST /risk/evaluate (rba-decision-service)
+           → tenant's engine OFF? → apply its base policy, no PDP call
+           → POST /risk/evaluate with tenant_id (rba-decision-service)
+           → apply enforced_action:
            → ALLOW          → session token
            → MFA / REAUTH   → challenge_id  (WebAuthn; tests may POST /mfa/verify with 000000)
            → BLOCK          → rejected (no session)
 ```
 
-| PDP action | Login outcome | What the IdP issues |
+| Enforced action | Login outcome | What the IdP issues |
 |---|---|---|
 | `ALLOW` | `AUTHENTICATED` | `session.token` (Bearer) |
 | `REQUIRE_MFA` | `MFA_REQUIRED` | `challenge_id` |
@@ -54,9 +65,17 @@ panel (HTML). PDP down / invalid response on the login path → degrade to
 `PDP_UNAVAILABLE_ACTION` (default `REQUIRE_MFA`) with a single `pdp_unavailable`
 reason and `risk_score` 0.0 — never a 503 (that is the mass lockout RNF-03
 forbids), never an `ALLOW`, and never a fake `BLOCK` (RF-10 / RNF-03, ADR-0028).
-Admin APIs: HTTP 401 without a session, HTTP 403 without the permission the
-endpoint needs — `admin:read` to open the console, `admin:write` to change
-identity, `policy:write` to retune risk (ADR-0029).
+Console login: an unknown domain, an unknown user, a wrong password and a user
+without a console role all answer the same `INVALID_CREDENTIALS`, at the same
+bcrypt cost, so the form reveals no tenant.
+Admin APIs: HTTP 401 without a session; HTTP 403 when the session is not on
+its tenant's console, or lacks the permission the endpoint needs —
+`admin:read` to open the console, `admin:write` to change identity,
+`decisions:read` for decisions, `policy:write` to retune risk (ADR-0029).
+Every query is filtered by the operator's tenant; another tenant's object
+answers 404 exactly like a missing one. A platform operator (`rokusec` tenant,
+`tenants:read`) acts on another tenant by sending `X-RokuSec-Tenant: <id>`;
+anyone else naming another tenant gets the same 403 whether it exists or not.
 Audit/PDP down on those read proxies → HTTP 503.
 
 Live MFA is a platform passkey (`POST /mfa/webauthn/options` then
@@ -103,17 +122,22 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/` or `/login` | Hosted UI. Query `application_id`; optional `country` / `asn` override |
-| `GET` | `/admin` | Admin SPA. Sign in via `/login?application_id=idp-admin-console&next=/admin` |
+| `GET` | `/login` | Hosted UI. Query `application_id`; optional `country` / `asn` override |
+| `GET` | `/` or `/console/login` | Console login (no `application_id`) |
+| `GET` | `/admin` | Admin SPA. Sign in via `/console/login?next=/admin` |
 | `GET` | `/static/…` | Login / admin CSS / JS |
 | `GET` | `/healthz` | `{ "status": "ok" }` |
 | `POST` | `/login` | `LoginRequest` → `LoginResponse` |
+| `POST` | `/console/login` | `ConsoleLoginRequest` (no `application_id`) → `LoginResponse` |
 | `POST` | `/mfa/verify` | Mock OTP (`MfaVerifyRequest`) → `LoginResponse` |
 | `POST` | `/mfa/webauthn/options` | `MfaWebAuthnOptionsRequest` → create/get options |
 | `POST` | `/mfa/webauthn/verify` | `MfaWebAuthnVerifyRequest` → `LoginResponse` |
 | `GET` | `/session` | Bearer required → `SessionResponse` with `application_id` and the session's effective `permissions` |
 | `POST` | `/logout` | Bearer; 204 even if already gone |
-| `GET/POST` | `/admin/api/users` | List / create (admin session) |
+| `GET` | `/admin/api/tenant` | The tenant this console request is scoped to |
+| `GET/POST` | `/admin/api/tenants` | Platform operator: list / create (with console + starter policy) |
+| `PATCH` | `/admin/api/tenants/{id}` | Platform operator: name, operator domains, branding |
+| `GET/POST` | `/admin/api/users` | List / create (console session) |
 | `PATCH` | `/admin/api/users/{user_id}` | Enable / role / password |
 | `GET/POST` | `/admin/api/applications` | List / register |
 | `PATCH` | `/admin/api/applications/{id}` | Name / enabled |
@@ -125,23 +149,31 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `GET/PATCH/DELETE` | `/admin/api/roles/{id}` | Role detail with its permissions |
 | `PUT` | `/admin/api/roles/{id}/permissions` | Replace a role's permission set |
 | `GET/POST` | `/admin/api/permissions` | List / create permissions |
-| `GET` | `/admin/api/decisions` | Decision browser (reasons) |
-| `GET/PUT` | `/admin/api/policy` | Active PDP `PolicyConfig` |
+| `GET` | `/admin/api/decisions` | Decision browser (reasons, verdict vs. enforced) |
+| `GET/PUT` | `/admin/api/policy` | The tenant's `TenantPolicy` on the PDP |
 
 HTTP 400: unknown/expired challenge, unknown application.
 HTTP 401: missing/expired/unknown session.
-HTTP 403: session is not an admin.
+HTTP 403: not a console session, missing permission, or another tenant named
+without being a platform operator.
+HTTP 404: unknown object — including any object of another tenant.
 HTTP 503: PDP or audit store unavailable — **admin reads only**. The login
 path degrades to a step-up instead (see above).
 
 ### Postgres tables (DB `rba_idp`)
 
-Created on startup:
+Created on startup. There are no migrations: a database created before
+tenancy is refused at startup with a message to reset it (ADR-0033).
 
-- `applications` — registered clients (`application_id` PK)
-- `users` — `user_id`, unique email, bcrypt `password_hash`, `is_admin`
-  (directory label only; authorization is RBAC)
-- `groups` / `group_memberships` — who
+- `tenants` — organisations; branding, `is_platform`, console application,
+  admin group
+- `tenant_domains` — operator email domain → tenant (`domain` PK: one tenant
+  per domain across the platform)
+- `applications` — registered clients (`application_id` PK, platform-wide), `tenant_id`
+- `users` — `user_id`, `tenant_id`, email unique **per tenant**, bcrypt
+  `password_hash`, `is_admin` (directory label only; drives the tenant's admin
+  group)
+- `groups` / `group_memberships` — who (`tenant_id`; names unique per tenant)
 - `roles` / `permissions` / `role_permissions` / `group_roles` — what they may
   do. `user → group → role → permission(resource, operation)`, every role
   scoped to one application (ADR-0029)
@@ -172,10 +204,9 @@ AUDIT_BASE_URL=http://localhost:8002 \
 uvicorn rba_idp.main:app --reload --port 8001
 ```
 
-Open [http://localhost:8001/login](http://localhost:8001/login) (or pass
-`?application_id=demo-banking-app`).
-Admin: [http://localhost:8001/admin](http://localhost:8001/admin)
-(redirects to hosted login for `idp-admin-console`).
+Bank login: [http://localhost:8001/login?application_id=roku-bank-web](http://localhost:8001/login?application_id=roku-bank-web).
+Console: [http://localhost:8001/admin](http://localhost:8001/admin)
+(redirects to `/console/login`).
 
 If Postgres was initialized **before** `rba_idp` existed:
 
@@ -201,24 +232,22 @@ at http://localhost:8080/login.
 
 ## Seeded identity
 
-Written on every boot if missing (`seed.py`):
+Written on every boot if missing (`seed.py`). Every password is
+`<local part>-demo` (suffix: `SEED_PASSWORD_SUFFIX`).
 
-| | |
-|---|---|
-| Application | `demo-banking-app` (Demo banking app), `redirect_uri` `http://localhost:8002/callback` |
-| Application | `idp-admin-console` (IdP admin console) |
-| User | `demo@example.com` / `demo-password` (`usr_demo`, not admin) |
-| User | `admin@example.com` / `admin-password` (`usr_admin`, `is_admin`) |
-| User | `viewer@example.com` / `viewer-password` — read-only bank customer |
-| User | `support@example.com` / `support-password` — support operator |
-| Group | `grp_banking` — demo user → role `customer` on the bank |
-| Group | `grp_bank_viewers` — viewer user → role `viewer` (no `transfer:create`) |
-| Group | `grp_support` — support user → role `support-operator` on the console |
-| Group | `grp_operators` — admin user → `platform-admin` + `customer` |
-| Passkey | none seeded — first MFA **creates** a platform passkey |
-| Mock OTP | `000000` (tests only) |
+| Tenant | Applications | Users |
+|---|---|---|
+| `roku-bank` (ALWAYS_MFA + MONITOR) | `roku-bank-web` (redirect `SEED_BANK_REDIRECT_URI`), `roku-bank-console` | `martin@correo.example` (customer), `sofia@correo.example` (viewer: no `transfer:create`), `diego@rokubank.example` (tenant-admin), `ana@rokubank.example` (support) |
+| `kaze-labs` (PASSWORD_ONLY + ACTIVE) | `kaze-portal` (redirect `SEED_KAZE_REDIRECT_URI`), `kaze-labs-console` | `lucas@kazelabs.example` (tenant-admin + portal admin), `martin@kazelabs.example` (member), `valen@kazelabs.example` (viewer) |
+| `rokusec` (platform) | `rokusec-console` | `juan@rokusec.example` (platform-operator: may switch tenants) |
 
-Matches `rba-contracts` IdP login examples.
+Every tenant's console has the same two roles, `tenant-admin` and `support`,
+and an `Administradores` group that `is_admin` adds a user to. Operator domains:
+`rokubank.example`, `kazelabs.example`, `rokusec.example`. Tenant policies live
+in the PDP (`rba-decision-service/config/policies/`).
+
+No passkey is seeded — first MFA **creates** a platform passkey (to be closed
+by T-7, ADR-0037). Mock OTP `000000` (tests only).
 
 ## Env
 
@@ -235,11 +264,11 @@ Matches `rba-contracts` IdP login examples.
 | `MOCK_OTP_CODE` | `000000` | tests only; hosted login uses WebAuthn |
 | `WEBAUTHN_RP_ID` | `localhost` | must match the browser host |
 | `WEBAUTHN_ORIGIN` | `http://localhost:8001,http://localhost:8080` | comma-separated; k8s sets `:8080` |
-| `SEED_USER_ID` / `SEED_EMAIL` / `SEED_PASSWORD` | `usr_demo` / `demo@example.com` / `demo-password` | |
-| `SEED_ADMIN_*` | `usr_admin` / `admin@example.com` / `admin-password` | |
-| `SEED_APPLICATION_ID` / `SEED_APPLICATION_NAME` | `demo-banking-app` / `Demo banking app` | |
-| `SEED_APPLICATION_REDIRECT_URI` | `http://localhost:8002/callback` | k8s: `http://demo.localhost:8080/callback` |
-| `SEED_ADMIN_APPLICATION_ID` | `idp-admin-console` | |
+| `POLICY_CACHE_SECONDS` | `5.0` | how long a tenant's policy is trusted before re-reading it (only `engine_mode: OFF` is decided from it) |
+| `SEED_BANK_REDIRECT_URI` | `http://localhost:8002/callback` | k8s: `http://demo.localhost:8080/callback` |
+| `SEED_KAZE_REDIRECT_URI` | `http://localhost:8003/callback` | |
+| `SEED_PASSWORD_SUFFIX` | `demo` | seeded passwords are `<local part>-<suffix>` |
+| `BCRYPT_ROUNDS` | `12` | the test suite sets 4 |
 | `HOST` / `PORT` | `0.0.0.0` / `8001` | |
 
 ## Guardrails

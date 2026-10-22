@@ -1,12 +1,25 @@
 const SESSION_KEY = "rba.idp.session";
-const ADMIN_APP = "idp-admin-console";
+// ADR-0033: the tenant a platform operator switched to. Sent on every admin
+// call; the server ignores nothing — a tenant operator naming another tenant
+// gets 403, so this is a preference, never an authorization.
+const TENANT_KEY = "rba.console.tenant";
+const TENANT_HEADER = "X-RokuSec-Tenant";
 
 export type Tab = "decisions" | "policy" | "users" | "apps" | "groups" | "roles";
 
 export type SessionUser = {
+  tenant_id: string;
   user_id: string;
   email: string;
   is_admin?: boolean;
+};
+
+export type Tenant = {
+  tenant_id: string;
+  name: string;
+  operator_domains: string[];
+  is_platform: boolean;
+  branding: { display_name: string; login_style: string };
 };
 
 export type AdminUser = {
@@ -74,7 +87,12 @@ export type Decision = {
   user_id: string;
   risk_score: number;
   risk_level: string;
+  /** The engine's verdict. */
   action: string;
+  /** What was applied (ADR-0034); differs from `action` while monitoring. */
+  enforced_action: string;
+  engine_mode: "OFF" | "MONITOR" | "ACTIVE";
+  simulated?: boolean;
   reasons: Reason[];
   policy_version: string;
   fallback: boolean;
@@ -84,9 +102,23 @@ function token(): string | null {
   return sessionStorage.getItem(SESSION_KEY);
 }
 
-function authHeader(): HeadersInit {
+function authHeader(): Record<string, string> {
   const value = token();
   return value ? { Authorization: `Bearer ${value}` } : {};
+}
+
+export function actingTenant(): string | null {
+  return sessionStorage.getItem(TENANT_KEY);
+}
+
+export function switchTenant(tenantId: string | null): void {
+  if (tenantId) sessionStorage.setItem(TENANT_KEY, tenantId);
+  else sessionStorage.removeItem(TENANT_KEY);
+}
+
+function tenantHeader(): Record<string, string> {
+  const value = actingTenant();
+  return value ? { [TENANT_HEADER]: value } : {};
 }
 
 function detailOf(body: unknown): string {
@@ -97,7 +129,8 @@ function detailOf(body: unknown): string {
 }
 
 export function redirectToLogin(): void {
-  window.location.assign(`/login?application_id=${ADMIN_APP}&next=/admin`);
+  // Email + password only; the server finds the tenant from the domain.
+  window.location.assign("/console/login?next=/admin");
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -106,6 +139,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     headers: {
       ...(options.body ? { "content-type": "application/json" } : {}),
       ...authHeader(),
+      ...(path.startsWith("/admin/api/") ? tenantHeader() : {}),
       ...(options.headers || {}),
     },
   });
@@ -120,6 +154,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   if (resp.status === 401) {
     sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(TENANT_KEY);
     redirectToLogin();
     throw new Error("unauthorized");
   }
@@ -134,5 +169,6 @@ export function currentToken(): string | null {
 export async function logout(): Promise<void> {
   await fetch("/logout", { method: "POST", headers: authHeader() });
   sessionStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(TENANT_KEY);
   redirectToLogin();
 }

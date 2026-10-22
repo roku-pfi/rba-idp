@@ -1,9 +1,17 @@
-"""Password verify, PDP enforce, session on ALLOW, WebAuthn MFA, mock OTP for tests."""
+"""Password verify, PDP enforce, session on ALLOW, WebAuthn MFA, mock OTP for tests.
+
+Tenancy (ADR-0033): an app login takes its tenant from the application; a
+console login takes it from the operator's email domain. Either way the email
+is looked up only inside that tenant, and the PDP scores under that tenant's
+policy. What the IdP applies is the PDP's ``enforced_action``, never the bare
+verdict (ADR-0034).
+"""
 
 from __future__ import annotations
 
 import logging
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import UUID, uuid4
@@ -14,6 +22,8 @@ from rba_contracts import (
     Action,
     CallbackTokenRequest,
     CallbackTokenResponse,
+    ConsoleLoginRequest,
+    EngineMode,
     LoginOutcome,
     LoginRequest,
     LoginResponse,
@@ -29,6 +39,7 @@ from rba_contracts import (
     SessionToken,
     UserPublic,
     WebAuthnCeremonyMode,
+    base_action,
     outcome_from_action,
 )
 from sqlalchemy import select
@@ -36,11 +47,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from webauthn.helpers import bytes_to_base64url
 from webauthn.helpers.exceptions import WebAuthnException
 
-from rba_idp.authz import (
-    ADMIN_READ,
-    effective_permissions,
-    has_application_access,
-)
+from rba_idp.authz import effective_permissions, has_application_access
 from rba_idp.config import Settings
 from rba_idp.db.models import (
     Application,
@@ -48,6 +55,7 @@ from rba_idp.db.models import (
     GroupMembership,
     IdpSession,
     MfaChallenge,
+    Tenant,
     User,
     WebAuthnCredential,
 )
@@ -55,6 +63,7 @@ from rba_idp.db.session import session_scope
 from rba_idp.geo import resolve_login_signals, scored_ip
 from rba_idp.passwords import verify_password
 from rba_idp.pdp import PdpClient, PdpUnavailable
+from rba_idp.tenancy import TenantPolicyCache, tenant_for_operator_email
 from rba_idp.tokens import (
     bearer_token,
     hash_session_token,
@@ -101,84 +110,205 @@ def user_has_app_access(session: Session, user_id: str, application_id: str) -> 
     return has_application_access(session, user_id, application_id)
 
 
+def _challenge_risk(challenge: MfaChallenge) -> dict:
+    """The decision a challenge was opened for, as LoginResponse fields.
+
+    A challenge opened with the engine off has no event and no score.
+    """
+    return {
+        "event_id": UUID(challenge.event_id) if challenge.event_id else None,
+        "action": Action(challenge.action),
+        "risk_score": challenge.risk_score,
+        "risk_level": RiskLevel(challenge.risk_level) if challenge.risk_level else None,
+        "reasons": [Reason.model_validate(item) for item in challenge.reasons],
+    }
+
+
+@dataclass(frozen=True)
+class _Attempt:
+    """One credential check, whichever door it came through."""
+
+    tenant_id: str
+    application_id: str
+    email: str
+    password: str
+    ip_address: str
+    asn: str | None
+    country: str | None
+    device_type: str | None
+    os: str | None
+    browser: str | None
+    user_agent: str | None
+    requested_redirect: str | None
+    registered_redirect: str | None
+    # Console logins answer every failure with INVALID_CREDENTIALS, including
+    # "no console role", so the form cannot be used to map tenants or users.
+    uniform_failures: bool
+
+
 class LoginService:
     def __init__(
         self,
         session_factory: sessionmaker,
         pdp: PdpClient,
         settings: Settings,
+        policies: TenantPolicyCache,
     ) -> None:
         self._session_factory = session_factory
         self._pdp = pdp
         self._settings = settings
+        self._policies = policies
 
     def login(self, body: LoginRequest) -> LoginResponse:
-        email = body.email.strip().lower()
-        wrong_password_for: str | None = None
+        """App login: the application names the tenant (ADR-0033)."""
         with session_scope(self._session_factory) as session:
             app = session.get(Application, body.application_id)
             if app is None or not app.enabled:
                 raise HTTPException(status_code=400, detail="unknown application")
+            tenant_id = app.tenant_id
             registered_redirect = app.redirect_uri
+        return self._authenticate(
+            _Attempt(
+                tenant_id=tenant_id,
+                application_id=body.application_id,
+                email=body.email,
+                password=body.password,
+                ip_address=body.ip_address,
+                asn=body.asn,
+                country=body.country,
+                device_type=body.device_type,
+                os=body.os,
+                browser=body.browser,
+                user_agent=body.user_agent,
+                requested_redirect=body.redirect_uri,
+                registered_redirect=registered_redirect,
+                uniform_failures=False,
+            )
+        )
 
-            user = session.scalar(select(User).where(User.email == email))
+    def console_login(self, body: ConsoleLoginRequest) -> LoginResponse:
+        """Operator login: the email's domain names the tenant (ADR-0033).
+
+        An unknown domain costs the same bcrypt as a wrong password and answers
+        the same way, so ``x@kazelabs.example`` teaches Diego nothing.
+        """
+        with session_scope(self._session_factory) as session:
+            tenant = tenant_for_operator_email(session, body.email)
+            console = self._console_of(session, tenant)
+            tenant_id = tenant.tenant_id if tenant is not None else None
+        if tenant_id is None or console is None:
+            verify_password(body.password, None)
+            return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+        return self._authenticate(
+            _Attempt(
+                tenant_id=tenant_id,
+                application_id=console,
+                email=body.email,
+                password=body.password,
+                ip_address=body.ip_address,
+                asn=body.asn,
+                country=body.country,
+                device_type=body.device_type,
+                os=body.os,
+                browser=body.browser,
+                user_agent=body.user_agent,
+                requested_redirect=None,
+                registered_redirect=None,
+                uniform_failures=True,
+            )
+        )
+
+    @staticmethod
+    def _console_of(session: Session, tenant: Tenant | None) -> str | None:
+        if tenant is None or not tenant.console_application_id:
+            return None
+        app = session.get(Application, tenant.console_application_id)
+        if app is None or not app.enabled or app.tenant_id != tenant.tenant_id:
+            return None
+        return app.application_id
+
+    def _authenticate(self, attempt: _Attempt) -> LoginResponse:
+        email = attempt.email.strip().lower()
+        wrong_password_for: str | None = None
+        with session_scope(self._session_factory) as session:
+            user = session.scalar(
+                select(User).where(
+                    User.tenant_id == attempt.tenant_id, User.email == email
+                )
+            )
             if user is None or not user.enabled:
-                verify_password(body.password, None)
+                verify_password(attempt.password, None)
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
 
-            if not verify_password(body.password, user.password_hash):
+            if not verify_password(attempt.password, user.password_hash):
                 # Report it outside the DB session, then answer exactly as before.
                 wrong_password_for = user.user_id
             else:
                 user_id = user.user_id
-                if not user_has_app_access(session, user_id, body.application_id):
+                if not user_has_app_access(session, user_id, attempt.application_id):
+                    if attempt.uniform_failures:
+                        return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
                     return LoginResponse(
                         outcome=LoginOutcome.ACCESS_DENIED,
                         user_id=user_id,
                         detail=ACCESS_DENIED_DETAIL,
                     )
 
-        ip = scored_ip(body.ip_address)
-        signals = resolve_login_signals(ip, country=body.country, asn=body.asn)
+        ip = scored_ip(attempt.ip_address)
+        signals = resolve_login_signals(ip, country=attempt.country, asn=attempt.asn)
+        policy = self._policies.get(attempt.tenant_id)
+        engine_off = policy is not None and policy.engine_mode is EngineMode.OFF
 
         if wrong_password_for is not None:
-            self._report_failed_login(wrong_password_for, body, ip, signals)
+            if not engine_off:
+                self._report_failed_login(wrong_password_for, attempt, ip, signals)
             return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+
+        if engine_off:
+            # ADR-0034: the engine is not consulted at all. Nothing is scored
+            # or recorded; the tenant's base policy decides.
+            return self._enforce(
+                user_id,
+                attempt,
+                base_action(policy.base_policy),
+                decision=None,
+            )
 
         request = RiskEvaluateRequest(
             event_id=uuid4(),
-            application_id=body.application_id,
+            tenant_id=attempt.tenant_id,
+            application_id=attempt.application_id,
             user_id=user_id,
             timestamp=datetime.now(timezone.utc),
             ip_address=ip,
             asn=signals.asn,
             country=signals.country,
-            device_type=body.device_type,
-            os=body.os,
-            browser=body.browser,
+            device_type=attempt.device_type,
+            os=attempt.os,
+            browser=attempt.browser,
             login_successful=True,
-            user_agent=body.user_agent,
+            user_agent=attempt.user_agent,
         )
         try:
             decision = self._pdp.evaluate(request)
         except PdpUnavailable as exc:
             logger.warning(
-                "PDP unavailable, degrading to %s for user_id=%s: %s",
+                "PDP unavailable, degrading to %s for tenant_id=%s user_id=%s: %s",
                 self._settings.pdp_unavailable_action,
+                attempt.tenant_id,
                 user_id,
                 exc,
             )
-            decision = self._degraded_decision(request.event_id)
+            decision = self._degraded_decision(
+                request.event_id,
+                policy.engine_mode if policy is not None else EngineMode.ACTIVE,
+            )
 
-        return self._enforce(
-            user_id,
-            body.application_id,
-            decision,
-            requested_redirect=body.redirect_uri,
-            registered_redirect=registered_redirect,
-        )
+        return self._enforce(user_id, attempt, decision.enforced_action, decision=decision)
 
-    def _degraded_decision(self, event_id: UUID) -> RiskEvaluateResponse:
+    def _degraded_decision(
+        self, event_id: UUID, engine_mode: EngineMode
+    ) -> RiskEvaluateResponse:
         """Stand in for the PDP when it does not answer at all (RF-10 / RNF-03).
 
         The PDP degrades to ``fallback_action`` when *its own* dependencies fail.
@@ -194,9 +324,10 @@ class LoginService:
 
         Note this decision is *not* written to the decision store: the store
         lives behind the service that just failed to answer. It survives in the
-        IdP log and, when a challenge is issued, on the challenge row. Monitor
-        mode cannot apply here either — it is policy state, and policy lives in
-        the PDP that is not answering.
+        IdP log and, when a challenge is issued, on the challenge row. The
+        step-up is enforced whatever the tenant's engine mode: monitor mode
+        would mean "apply the base policy", and the base policy cannot be read
+        from a PDP that is not answering — a step-up is never weaker than it.
         """
         action = Action(self._settings.pdp_unavailable_action)
         return RiskEvaluateResponse(
@@ -204,6 +335,8 @@ class LoginService:
             risk_score=0.0,
             risk_level=RiskLevel.HIGH,
             action=action,
+            enforced_action=action,
+            engine_mode=engine_mode,
             reasons=[
                 Reason(
                     code="pdp_unavailable",
@@ -224,7 +357,7 @@ class LoginService:
     def _report_failed_login(
         self,
         user_id: str,
-        body: LoginRequest,
+        attempt: _Attempt,
         ip: str,
         signals,
     ) -> None:
@@ -247,17 +380,18 @@ class LoginService:
             self._pdp.evaluate(
                 RiskEvaluateRequest(
                     event_id=uuid4(),
-                    application_id=body.application_id,
+                    tenant_id=attempt.tenant_id,
+                    application_id=attempt.application_id,
                     user_id=user_id,
                     timestamp=datetime.now(timezone.utc),
                     ip_address=ip,
                     asn=signals.asn,
                     country=signals.country,
-                    device_type=body.device_type,
-                    os=body.os,
-                    browser=body.browser,
+                    device_type=attempt.device_type,
+                    os=attempt.os,
+                    browser=attempt.browser,
                     login_successful=False,
-                    user_agent=body.user_agent,
+                    user_agent=attempt.user_agent,
                 )
             )
         except Exception:
@@ -377,6 +511,7 @@ class LoginService:
                     token=row.session_token, expires_at=_as_utc(stored.expires_at)
                 ),
                 user=UserPublic(
+                    tenant_id=user.tenant_id,
                     user_id=user.user_id,
                     email=user.email,
                     created_at=_as_utc(user.created_at),
@@ -385,9 +520,10 @@ class LoginService:
             )
 
     def get_session(self, authorization: str | None) -> SessionResponse:
-        row, user, permissions = self._load_session(authorization)
+        row, user, permissions = self.load_session(authorization)
         return SessionResponse(
             user=UserPublic(
+                tenant_id=user.tenant_id,
                 user_id=user.user_id,
                 email=user.email,
                 created_at=_as_utc(user.created_at),
@@ -410,33 +546,36 @@ class LoginService:
     def _enforce(
         self,
         user_id: str,
-        application_id: str,
-        decision: RiskEvaluateResponse,
+        attempt: _Attempt,
+        action: Action,
         *,
-        requested_redirect: str | None,
-        registered_redirect: str | None,
+        decision: RiskEvaluateResponse | None,
     ) -> LoginResponse:
+        """Apply ``action`` — the PDP's ``enforced_action``, or the base policy
+        when the engine is off (``decision`` is then ``None``)."""
         session_token: SessionToken | None = None
         challenge_id: UUID | None = None
         redirect_to: str | None = None
-        if decision.action == Action.ALLOW:
+        if action == Action.ALLOW:
             session_token, redirect_to = self._create_session_with_callback(
                 user_id,
-                application_id,
-                requested_redirect=requested_redirect,
-                registered_redirect=registered_redirect,
+                attempt.application_id,
+                requested_redirect=attempt.requested_redirect,
+                registered_redirect=attempt.registered_redirect,
             )
-        elif decision.action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE):
-            challenge_id = self._create_challenge(user_id, application_id, decision)
+        elif action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE):
+            challenge_id = self._create_challenge(
+                user_id, attempt.application_id, action, decision
+            )
 
         return LoginResponse(
-            outcome=outcome_from_action(decision.action),
+            outcome=outcome_from_action(action),
             user_id=user_id,
-            event_id=decision.event_id,
-            action=decision.action,
-            risk_score=decision.risk_score,
-            risk_level=decision.risk_level,
-            reasons=decision.reasons,
+            event_id=decision.event_id if decision is not None else None,
+            action=action,
+            risk_score=decision.risk_score if decision is not None else None,
+            risk_level=decision.risk_level if decision is not None else None,
+            reasons=decision.reasons if decision is not None else [],
             session=session_token,
             challenge_id=challenge_id,
             redirect_to=redirect_to,
@@ -513,7 +652,8 @@ class LoginService:
         self,
         user_id: str,
         application_id: str,
-        decision: RiskEvaluateResponse,
+        action: Action,
+        decision: RiskEvaluateResponse | None,
     ) -> UUID:
         challenge_id = uuid4()
         now = datetime.now(timezone.utc)
@@ -523,11 +663,13 @@ class LoginService:
                     challenge_id=str(challenge_id),
                     user_id=user_id,
                     application_id=application_id,
-                    event_id=str(decision.event_id),
-                    action=decision.action.value,
-                    risk_score=decision.risk_score,
-                    risk_level=decision.risk_level.value,
-                    reasons=[item.model_dump(mode="json") for item in decision.reasons],
+                    event_id=str(decision.event_id) if decision is not None else None,
+                    action=action.value,
+                    risk_score=decision.risk_score if decision is not None else None,
+                    risk_level=decision.risk_level.value if decision is not None else None,
+                    reasons=[item.model_dump(mode="json") for item in decision.reasons]
+                    if decision is not None
+                    else [],
                     expires_at=now
                     + timedelta(seconds=self._settings.challenge_ttl_seconds),
                 )
@@ -562,11 +704,7 @@ class LoginService:
             return LoginResponse(
                 outcome=LoginOutcome.ACCESS_DENIED,
                 user_id=challenge.user_id,
-                event_id=UUID(challenge.event_id),
-                action=Action(challenge.action),
-                risk_score=challenge.risk_score,
-                risk_level=RiskLevel(challenge.risk_level),
-                reasons=[Reason.model_validate(item) for item in challenge.reasons],
+                **_challenge_risk(challenge),
                 detail=ACCESS_DENIED_DETAIL,
             )
 
@@ -587,16 +725,12 @@ class LoginService:
         return LoginResponse(
             outcome=LoginOutcome.AUTHENTICATED,
             user_id=challenge.user_id,
-            event_id=UUID(challenge.event_id),
-            action=Action(challenge.action),
-            risk_score=challenge.risk_score,
-            risk_level=RiskLevel(challenge.risk_level),
-            reasons=[Reason.model_validate(item) for item in challenge.reasons],
+            **_challenge_risk(challenge),
             session=token,
             redirect_to=redirect_to,
         )
 
-    def _load_session(
+    def load_session(
         self, authorization: str | None
     ) -> tuple[IdpSession, User, set[str]]:
         """Resolve a bearer token to (session, user, effective permissions).
@@ -617,29 +751,3 @@ class LoginService:
                 raise HTTPException(status_code=401, detail="missing or expired session")
             permissions = effective_permissions(session, user.user_id, row.application_id)
             return row, user, permissions
-
-    def require_permission(
-        self, authorization: str | None, resource: str, operation: str
-    ) -> User:
-        """Authorize one operation on the session's application (RF-21).
-
-        The session is already scoped to an application, so there is nothing to
-        pass in and nothing for a caller to get wrong: a bank token can never
-        authorize an admin operation, whatever roles the user holds elsewhere.
-        """
-        _row, user, permissions = self._load_session(authorization)
-        if f"{resource}:{operation}" not in permissions:
-            raise HTTPException(
-                status_code=403,
-                detail=f"requires permission {resource}:{operation}",
-            )
-        return user
-
-    def require_admin(self, authorization: str | None) -> User:
-        """Guard for the admin console. Now RBAC, not the `is_admin` flag.
-
-        `admin:read` is the console's entry permission; the support operator
-        holds it and stops there (HU-10), while write endpoints ask separately
-        for `admin:write` or `policy:write`.
-        """
-        return self.require_permission(authorization, *ADMIN_READ)

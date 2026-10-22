@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -25,56 +25,32 @@ def make_engine(url: str, *, echo: bool = False, memory: bool = False) -> Engine
     return create_engine(url, echo=echo, future=True)
 
 
+class SchemaPredatesTenancy(RuntimeError):
+    """The database was created before ADR-0033 and has no ``tenant_id`` columns."""
+
+
 def create_tables(engine: Engine) -> None:
+    _refuse_pre_tenancy_schema(engine)
     Base.metadata.create_all(engine)
-    _ensure_is_admin_column(engine)
-    _ensure_redirect_uri_column(engine)
-    _ensure_webauthn_challenge_columns(engine)
 
 
-def _ensure_is_admin_column(engine: Engine) -> None:
-    """Additive IdP-6 column; create_all does not ALTER existing Postgres tables."""
+def _refuse_pre_tenancy_schema(engine: Engine) -> None:
+    """Fail loudly on a database created before tenancy.
+
+    ``create_all`` never ALTERs an existing table, so an old ``users`` table
+    would survive without ``tenant_id`` and every query would fail later, far
+    from the cause. There are no migrations (ADR-0033): the cloud databases are
+    created fresh on every ``up`` and local ones are reset.
+    """
     inspector = inspect(engine)
     if "users" not in inspector.get_table_names():
         return
     cols = {c["name"] for c in inspector.get_columns("users")}
-    if "is_admin" in cols:
-        return
-    default = "FALSE" if engine.dialect.name == "postgresql" else "0"
-    with engine.begin() as conn:
-        conn.execute(
-            text(f"ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT {default}")
+    if "tenant_id" not in cols:
+        raise SchemaPredatesTenancy(
+            "rba_idp database predates multi-tenancy (no users.tenant_id); "
+            "drop it and start again (k3d-down.sh + k3d-up.sh)"
         )
-
-
-def _ensure_redirect_uri_column(engine: Engine) -> None:
-    """Additive Demo-2 column; create_all does not ALTER existing Postgres tables."""
-    inspector = inspect(engine)
-    if "applications" not in inspector.get_table_names():
-        return
-    cols = {c["name"] for c in inspector.get_columns("applications")}
-    if "redirect_uri" in cols:
-        return
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE applications ADD COLUMN redirect_uri VARCHAR(512)"))
-
-
-def _ensure_webauthn_challenge_columns(engine: Engine) -> None:
-    """Additive Demo-4 columns; create_all does not ALTER existing Postgres tables."""
-    inspector = inspect(engine)
-    if "mfa_challenges" not in inspector.get_table_names():
-        return
-    cols = {c["name"] for c in inspector.get_columns("mfa_challenges")}
-    blob = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
-    with engine.begin() as conn:
-        if "webauthn_challenge" not in cols:
-            conn.execute(
-                text(f"ALTER TABLE mfa_challenges ADD COLUMN webauthn_challenge {blob}")
-            )
-        if "webauthn_mode" not in cols:
-            conn.execute(
-                text("ALTER TABLE mfa_challenges ADD COLUMN webauthn_mode VARCHAR(16)")
-            )
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:

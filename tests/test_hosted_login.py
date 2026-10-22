@@ -22,7 +22,7 @@ def _boot(html: str) -> dict:
 
 
 def test_hosted_login_page(client: TestClient) -> None:
-    resp = client.get("/login")
+    resp = client.get("/login", params={"application_id": "roku-bank-web"})
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     html = resp.text
@@ -30,17 +30,23 @@ def test_hosted_login_page(client: TestClient) -> None:
     assert 'id="panel-denied"' in html
     assert "/static/login.js" in html
     boot = _boot(html)
-    assert boot["application_id"] == "demo-banking-app"
-    assert boot["application_name"] == "Demo banking app"
+    assert boot["application_id"] == "roku-bank-web"
+    assert boot["application_name"] == "Roku Bank"
+    assert boot["tenant_name"] == "Roku Bank"
+    assert boot["console"] is False
     assert boot["unknown_application"] is False
     assert boot["ip_address"]
     assert boot["redirect_uri"] == "http://localhost:8002/callback"
 
 
-def test_root_serves_the_same_hosted_page(client: TestClient) -> None:
+def test_root_without_an_application_is_the_console_login(client: TestClient) -> None:
     resp = client.get("/")
     assert resp.status_code == 200
     assert 'id="form-login"' in resp.text
+    boot = _boot(resp.text)
+    assert boot["console"] is True
+    assert boot["application_id"] is None
+    assert boot["unknown_application"] is False
 
 
 def test_hosted_login_unknown_application(client: TestClient) -> None:

@@ -45,31 +45,19 @@ class Settings(BaseSettings):
     # Comma-separated origins. Compose uses :8001; k3d Ingress uses :8080.
     webauthn_origin: str = "http://localhost:8001,http://localhost:8080"
 
-    seed_user_id: str = "usr_demo"
-    seed_email: str = "demo@example.com"
-    seed_password: str = "demo-password"
-    seed_application_id: str = "demo-banking-app"
-    seed_application_name: str = "Demo banking app"
-    seed_application_redirect_uri: str = "http://localhost:8002/callback"
+    # How long the login path trusts a tenant's policy before re-reading it
+    # from the PDP. Only `engine_mode == OFF` is decided from it here; every
+    # other decision is the PDP's own, made with the PDP's current policy.
+    policy_cache_seconds: float = 5.0
 
-    seed_admin_user_id: str = "usr_admin"
-    seed_admin_email: str = "admin@example.com"
-    seed_admin_password: str = "admin-password"
-    seed_admin_application_id: str = "idp-admin-console"
-    seed_admin_application_name: str = "IdP admin console"
-
-    # Read-only bank user (ADR-0029). Same application, same login, a role that
-    # omits `transfer:create` — the live proof that RF-21 authorizes operations
-    # and not just sign-in.
-    seed_viewer_user_id: str = "usr_viewer"
-    seed_viewer_email: str = "viewer@example.com"
-    seed_viewer_password: str = "viewer-password"
-
-    # Support operator (HU-10): may read decisions, may not change identity or
-    # policy. The thesis defines this actor; without roles it could not exist.
-    seed_operator_user_id: str = "usr_support"
-    seed_operator_email: str = "support@example.com"
-    seed_operator_password: str = "support-password"
+    # Seed (ADR-0033): three tenants. Only the values that differ between
+    # environments are settings; the directory itself lives in `seed.py`.
+    seed_bank_redirect_uri: str = "http://localhost:8002/callback"
+    seed_kaze_redirect_uri: str = "http://localhost:8003/callback"
+    # Every seeded user's password is f"{local part}-{suffix}", e.g.
+    # martin@correo.example → "martin-demo". Overridable so a cloud session
+    # does not run on a password printed in the repository.
+    seed_password_suffix: str = "demo"
 
     audit_base_url: str = "http://localhost:8000"
     audit_timeout_seconds: float = 2.0

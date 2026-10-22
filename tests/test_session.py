@@ -23,8 +23,8 @@ def test_get_session_returns_user(client: TestClient) -> None:
     resp = client.get("/session", headers=_auth(token))
     assert resp.status_code == 200
     body = resp.json()
-    assert body["user"]["user_id"] == "usr_demo"
-    assert body["user"]["email"] == "demo@example.com"
+    assert body["user"]["user_id"] == "usr_rb_martin"
+    assert body["user"]["email"] == "martin@correo.example"
     assert body["user"]["created_at"]
     assert body["expires_at"] == login["session"]["expires_at"]
 
@@ -80,7 +80,7 @@ def test_mfa_verify_issues_session() -> None:
         assert resp.status_code == 200
         body = resp.json()
         assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
-        assert body["user_id"] == "usr_demo"
+        assert body["user_id"] == "usr_rb_martin"
         assert body["action"] == Action.REQUIRE_MFA.value
         assert body["risk_score"] == 0.61
         assert body["reasons"] == [REASON.model_dump(mode="json")]

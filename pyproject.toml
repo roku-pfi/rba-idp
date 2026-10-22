@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rba-idp"
-version = "0.4.0"
+version = "0.5.0"
 description = "Thesis-scale IdP (PEP): hosted login, PDP enforce, session, WebAuthn MFA, admin console, groups, thin callback."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,7 +21,7 @@ dependencies = [
     "httpx>=0.27",
     "jinja2>=3.1",
     "webauthn>=2.2,<3",
-    "rba-contracts>=0.6.0",
+    "rba-contracts>=0.9.0",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,5 @@
 (() => {
   const SESSION_KEY = "rba.idp.session";
-  const ADMIN_APP = "idp-admin-console";
   const root = document.getElementById("root");
 
   const state = {
@@ -54,7 +53,7 @@
     const body = await parseJson(resp);
     if (resp.status === 401) {
       sessionStorage.removeItem(SESSION_KEY);
-      window.location.assign(`/login?application_id=${ADMIN_APP}&next=/admin`);
+      window.location.assign("/console/login?next=/admin");
       throw new Error("unauthorized");
     }
     if (!resp.ok) {
@@ -550,7 +549,7 @@
               onClick: async () => {
                 await fetch("/logout", { method: "POST", headers: authHeader() });
                 sessionStorage.removeItem(SESSION_KEY);
-                window.location.assign(`/login?application_id=${ADMIN_APP}&next=/admin`);
+                window.location.assign("/console/login?next=/admin");
               },
             }, "Sign out"),
           ),
@@ -581,7 +580,7 @@
 
   async function boot() {
     if (!token()) {
-      window.location.assign(`/login?application_id=${ADMIN_APP}&next=/admin`);
+      window.location.assign("/console/login?next=/admin");
       return;
     }
     try {

@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 from rba_contracts import Action, LoginOutcome
 
-from tests.helpers import LOGIN, StubPdp, client_for
+from tests.helpers import DIEGO, LOGIN, StubPdp, client_for
 
 
 def _code_from(redirect_to: str) -> str:
@@ -26,7 +26,7 @@ def test_allow_issues_callback_for_seeded_banking_app(client: TestClient) -> Non
     assert exchanged.status_code == 200
     payload = exchanged.json()
     assert payload["session"]["token"] == body["session"]["token"]
-    assert payload["user"]["email"] == "demo@example.com"
+    assert payload["user"]["email"] == "martin@correo.example"
     assert payload["user"]["is_admin"] is False
 
 
@@ -53,15 +53,7 @@ def test_mismatched_redirect_uri_does_not_leave_the_idp(client: TestClient) -> N
 
 def test_admin_console_has_no_callback() -> None:
     with client_for(StubPdp()) as client:
-        body = client.post(
-            "/login",
-            json={
-                **LOGIN,
-                "email": "admin@example.com",
-                "password": "admin-password",
-                "application_id": "idp-admin-console",
-            },
-        ).json()
+        body = client.post("/console/login", json=DIEGO).json()
         assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
         assert "redirect_to" not in body
 

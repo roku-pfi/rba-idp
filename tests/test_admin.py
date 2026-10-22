@@ -1,4 +1,7 @@
-"""IdP-6 admin console BFF (users, apps, decisions, policy)."""
+"""Admin console BFF (users, apps, decisions, policy), for one tenant's operator.
+
+Cross-tenant isolation has its own file, `test_tenancy.py`.
+"""
 
 from __future__ import annotations
 
@@ -6,19 +9,31 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi.testclient import TestClient
-from rba_contracts import Action, DecisionRecord, Reason, RiskLevel
+from rba_contracts import Action, DecisionRecord, EngineMode, Reason, RiskLevel
 
-from tests.helpers import ADMIN_LOGIN, LOGIN, FailingAudit, StubAudit, StubPdp, client_for
+from tests.helpers import (
+    ADMIN_LOGIN,
+    BANK,
+    LOGIN,
+    FailingAudit,
+    StubAudit,
+    StubPdp,
+    client_for,
+    console_token,
+)
 
 EVENT_ID = UUID("4f9a8c2e-1b3d-4a6f-9c8e-2d1b3a6f9c8e")
 DECISION = DecisionRecord(
     event_id=EVENT_ID,
     occurred_at=datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc),
-    application_id="demo-banking-app",
-    user_id="usr_demo",
+    tenant_id=BANK,
+    application_id="roku-bank-web",
+    user_id="usr_rb_martin",
     risk_score=0.61,
     risk_level=RiskLevel.MEDIUM,
     action=Action.REQUIRE_MFA,
+    enforced_action=Action.REQUIRE_MFA,
+    engine_mode=EngineMode.MONITOR,
     reasons=[
         Reason(
             code="signal_novel",
@@ -39,9 +54,7 @@ def _auth(token: str) -> dict[str, str]:
 
 
 def _admin_token(client: TestClient) -> str:
-    body = client.post("/login", json=ADMIN_LOGIN).json()
-    assert body["outcome"] == "AUTHENTICATED", body
-    return body["session"]["token"]
+    return console_token(client, ADMIN_LOGIN)
 
 
 def test_admin_page(client: TestClient) -> None:
@@ -62,21 +75,32 @@ def test_admin_static_assets(client: TestClient) -> None:
     assert "/admin/api/groups" in js.text
 
 
-def test_hosted_login_forwards_next(client: TestClient) -> None:
-    resp = client.get(
-        "/login",
-        params={"application_id": "idp-admin-console", "next": "/admin"},
-    )
+def test_console_login_page_goes_to_admin(client: TestClient) -> None:
+    resp = client.get("/console/login")
     assert resp.status_code == 200
-    assert '"next": "/admin"' in resp.text or "/admin" in resp.text
+    assert '"console": true' in resp.text
+    assert '"next": "/admin"' in resp.text
 
 
-def test_demo_user_is_forbidden_on_admin(client: TestClient) -> None:
+def test_bank_session_is_forbidden_on_admin(client: TestClient) -> None:
     token = client.post("/login", json=LOGIN).json()["session"]["token"]
     resp = client.get("/admin/api/users", headers=_auth(token))
     assert resp.status_code == 403
-    # RBAC now names the missing permission instead of a generic "admin required".
-    assert resp.json()["detail"] == "requires permission admin:read"
+    assert resp.json()["detail"] == "not a console session"
+
+
+def test_support_operator_reads_but_cannot_write(client: TestClient) -> None:
+    from tests.helpers import ANA
+
+    token = console_token(client, ANA)
+    assert client.get("/admin/api/users", headers=_auth(token)).status_code == 200
+    resp = client.post(
+        "/admin/api/users", headers=_auth(token), json={"email": "x@correo.example", "password": "x"}
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "requires permission admin:write"
+    resp = client.put("/admin/api/policy", headers=_auth(token), json={})
+    assert resp.status_code in (403, 422)
 
 
 def test_admin_requires_session(client: TestClient) -> None:
@@ -88,9 +112,10 @@ def test_admin_lists_users_and_creates(client: TestClient) -> None:
     listed = client.get("/admin/api/users", headers=_auth(token))
     assert listed.status_code == 200
     emails = {row["email"] for row in listed.json()}
-    assert "admin@example.com" in emails
-    assert "demo@example.com" in emails
-    admin = next(row for row in listed.json() if row["email"] == "admin@example.com")
+    assert "diego@rokubank.example" in emails
+    assert "martin@correo.example" in emails
+    assert {row["tenant_id"] for row in listed.json()} == {BANK}
+    admin = next(row for row in listed.json() if row["email"] == "diego@rokubank.example")
     assert admin["is_admin"] is True
     assert "password" not in admin
     assert "password_hash" not in admin
@@ -99,19 +124,20 @@ def test_admin_lists_users_and_creates(client: TestClient) -> None:
         "/admin/api/users",
         headers=_auth(token),
         json={
-            "email": "analyst@example.com",
+            "email": "analyst@rokubank.example",
             "password": "analyst-password",
             "is_admin": False,
         },
     )
     assert created.status_code == 201
-    assert created.json()["email"] == "analyst@example.com"
+    assert created.json()["email"] == "analyst@rokubank.example"
+    assert created.json()["tenant_id"] == BANK
     assert created.json()["is_admin"] is False
 
     dup = client.post(
         "/admin/api/users",
         headers=_auth(token),
-        json={"email": "analyst@example.com", "password": "x"},
+        json={"email": "analyst@rokubank.example", "password": "x"},
     )
     assert dup.status_code == 409
 
@@ -128,25 +154,35 @@ def test_admin_applications(client: TestClient) -> None:
     token = _admin_token(client)
     listed = client.get("/admin/api/applications", headers=_auth(token))
     ids = {row["application_id"] for row in listed.json()}
-    assert "demo-banking-app" in ids
-    assert "idp-admin-console" in ids
+    assert ids == {"roku-bank-web", "roku-bank-console"}
     banking = next(
-        row for row in listed.json() if row["application_id"] == "demo-banking-app"
+        row for row in listed.json() if row["application_id"] == "roku-bank-web"
     )
     assert banking["redirect_uri"] == "http://localhost:8002/callback"
 
     created = client.post(
         "/admin/api/applications",
         headers=_auth(token),
-        json={"application_id": "demo-forum-app", "name": "Demo forum"},
+        json={"application_id": "roku-bank-app", "name": "Roku Bank app"},
     )
     assert created.status_code == 201
+    assert created.json()["tenant_id"] == BANK
     patched = client.patch(
-        "/admin/api/applications/demo-forum-app",
+        "/admin/api/applications/roku-bank-app",
         headers=_auth(token),
         json={"enabled": False},
     )
     assert patched.json()["enabled"] is False
+
+
+def test_console_cannot_be_disabled(client: TestClient) -> None:
+    token = _admin_token(client)
+    resp = client.patch(
+        "/admin/api/applications/roku-bank-console",
+        headers=_auth(token),
+        json={"enabled": False},
+    )
+    assert resp.status_code == 409
 
 
 def test_admin_session_exposes_is_admin(client: TestClient) -> None:
@@ -160,7 +196,9 @@ def test_admin_session_exposes_is_admin(client: TestClient) -> None:
         headers=_auth(_admin_token(client)),
     ).json()
     assert admin["user"]["is_admin"] is True
-    assert admin["user"]["email"] == "admin@example.com"
+    assert admin["user"]["email"] == "diego@rokubank.example"
+    assert admin["user"]["tenant_id"] == BANK
+    assert admin["application_id"] == "roku-bank-console"
 
 
 def test_admin_decision_browser_includes_reasons() -> None:
@@ -175,7 +213,7 @@ def test_admin_decision_browser_includes_reasons() -> None:
         assert item["reasons"][0]["signal"] == "device_type"
         got = client.get(f"/admin/api/decisions/{EVENT_ID}", headers=_auth(token))
         assert got.status_code == 200
-        assert got.json()["user_id"] == "usr_demo"
+        assert got.json()["user_id"] == "usr_rb_martin"
 
 
 def test_admin_decisions_fail_closed_when_audit_down() -> None:
@@ -191,6 +229,7 @@ def test_admin_policy_get_and_put(client: TestClient) -> None:
     got = client.get("/admin/api/policy", headers=_auth(token))
     assert got.status_code == 200
     body = got.json()
+    assert body["tenant_id"] == BANK
     assert body["policy_version"] == "1.0.0"
     body["policy_version"] = "1.0.0-from-admin"
     put = client.put("/admin/api/policy", headers=_auth(token), json=body)

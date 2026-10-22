@@ -1,4 +1,9 @@
-"""SQLAlchemy models: applications, users, groups, roles, sessions, MFA challenges.
+"""SQLAlchemy models: tenants, applications, users, groups, roles, sessions, MFA.
+
+Tenancy (ADR-0033): every application, user, group and role belongs to exactly
+one tenant. Permissions follow their application; sessions, challenges,
+passkeys and auth codes follow their user. Isolation is logical — a
+``tenant_id`` on every owned row, enforced by the services, never by the UI.
 
 Authorization is RBAC (ADR-0029): ``user → group → role → permission``, with
 every role scoped to one application. Groups say *who*; roles say *what you
@@ -18,12 +23,58 @@ class Base(DeclarativeBase):
     pass
 
 
+class Tenant(Base):
+    """An organisation that uses RokuSec (ADR-0033). Branding per ADR-0036."""
+
+    __tablename__ = "tenants"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # The platform tenant (RokuSec itself). Its operators may switch tenants —
+    # but only through the `tenants:read` permission; this is a label.
+    is_platform: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The application operators of this tenant sign in to (console login).
+    console_application_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # The group that `is_admin` on a user of this tenant adds them to.
+    admin_group_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    login_style: Mapped[str] = mapped_column(String(16), nullable=False, default="rokusec")
+    logo_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    primary_colour: Mapped[str] = mapped_column(String(7), nullable=False, default="#1466E5")
+    accent_colour: Mapped[str] = mapped_column(String(7), nullable=False, default="#152953")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class TenantDomain(Base):
+    """Operator email domain → tenant (home realm discovery, ADR-0033).
+
+    The domain is the primary key, so one domain can never route to two
+    tenants anywhere on the platform.
+    """
+
+    __tablename__ = "tenant_domains"
+
+    domain: Mapped[str] = mapped_column(String(253), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tenants.tenant_id"), nullable=False, index=True
+    )
+
+
 class Application(Base):
-    """Registered client of the IdP (Auth0 'application' / Authentik app, simplified)."""
+    """Registered client of the IdP (Auth0 'application' / Authentik app, simplified).
+
+    ``application_id`` is the client id and is unique across the platform: it
+    is what tells a login which tenant it belongs to.
+    """
 
     __tablename__ = "applications"
 
     application_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tenants.tenant_id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     redirect_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
@@ -34,14 +85,19 @@ class Application(Base):
 
 class User(Base):
     __tablename__ = "users"
+    # The same address can be two people in two organisations (ADR-0033).
+    __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_users_tenant_email"),)
 
     user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tenants.tenant_id"), nullable=False, index=True
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Directory label only — **not** an authorization input (ADR-0029).
     # Authorization is the RBAC chain below. Setting this through the admin API
-    # adds or removes the platform-admin role, so the flag can never disagree
+    # adds or removes membership of the tenant's admin group, so the flag can never disagree
     # with what the user can actually do.
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -53,9 +109,12 @@ class Group(Base):
     """Named collection of users. Grants (not is_admin) decide which apps they may log into."""
 
     __tablename__ = "groups"
-    __table_args__ = (UniqueConstraint("name", name="uq_groups_name"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_groups_tenant_name"),)
 
     group_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tenants.tenant_id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
@@ -117,6 +176,10 @@ class Role(Base):
     )
 
     role_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # Always the application's tenant; stored so tenant-scoped reads need no join.
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("tenants.tenant_id"), nullable=False, index=True
+    )
     application_id: Mapped[str] = mapped_column(
         String(128), ForeignKey("applications.application_id"), nullable=False, index=True
     )
@@ -187,10 +250,12 @@ class MfaChallenge(Base):
         String(128), ForeignKey("users.user_id"), nullable=False, index=True
     )
     application_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    event_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # The action demanded (the PDP's enforced action, or the tenant's base
+    # policy when the engine is off — then there is no event and no score).
+    event_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
-    risk_score: Mapped[float] = mapped_column(Float, nullable=False)
-    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reasons: Mapped[list[Any]] = mapped_column(JSON, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

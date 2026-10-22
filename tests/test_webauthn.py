@@ -103,7 +103,7 @@ class SoftPasskey:
                 "clientDataJSON": bytes_to_base64url(client),
                 "authenticatorData": bytes_to_base64url(auth),
                 "signature": bytes_to_base64url(sig),
-                "userHandle": bytes_to_base64url(b"usr_demo"),
+                "userHandle": bytes_to_base64url(b"usr_rb_martin"),
             },
         }
 

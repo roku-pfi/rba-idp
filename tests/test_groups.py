@@ -11,12 +11,12 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from rba_contracts import LoginOutcome
 
-from tests.helpers import ADMIN_LOGIN, LOGIN
+from tests.helpers import ADMIN_LOGIN, LOGIN, console_token
 
-BANKING = "grp_banking"
-OPERATORS = "grp_operators"
-VIEWERS = "grp_bank_viewers"
-SUPPORT = "grp_support"
+BANKING = "grp_rb_customers"
+ADMINS = "grp_roku_bank_admins"
+VIEWERS = "grp_rb_viewers"
+SUPPORT = "grp_rb_support"
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -24,9 +24,7 @@ def _auth(token: str) -> dict[str, str]:
 
 
 def _admin_token(client: TestClient) -> str:
-    body = client.post("/login", json=ADMIN_LOGIN).json()
-    assert body["outcome"] == "AUTHENTICATED", body
-    return body["session"]["token"]
+    return console_token(client, ADMIN_LOGIN)
 
 
 def _forum_login(client: TestClient):
@@ -34,9 +32,9 @@ def _forum_login(client: TestClient):
         "/login",
         json={
             **LOGIN,
-            "email": "reader@example.com",
+            "email": "reader@correo.example",
             "password": "reader-password",
-            "application_id": "demo-forum-app",
+            "application_id": "roku-bank-forum",
         },
     )
 
@@ -46,27 +44,24 @@ def test_seeded_groups(client: TestClient) -> None:
     listed = client.get("/admin/api/groups", headers=_auth(token))
     assert listed.status_code == 200
     by_id = {row["group_id"]: row for row in listed.json()}
-    assert {BANKING, VIEWERS, SUPPORT, OPERATORS} <= by_id.keys()
+    assert by_id.keys() == {BANKING, VIEWERS, SUPPORT, ADMINS}
     assert by_id[BANKING]["member_count"] == 1
 
     banking = client.get(f"/admin/api/groups/{BANKING}", headers=_auth(token)).json()
-    assert {m["email"] for m in banking["members"]} == {"demo@example.com"}
+    assert {m["email"] for m in banking["members"]} == {"martin@correo.example"}
     assert {r["name"] for r in banking["roles"]} == {"customer"}
 
     viewers = client.get(f"/admin/api/groups/{VIEWERS}", headers=_auth(token)).json()
-    assert {m["email"] for m in viewers["members"]} == {"viewer@example.com"}
+    assert {m["email"] for m in viewers["members"]} == {"sofia@correo.example"}
     assert {r["name"] for r in viewers["roles"]} == {"viewer"}
 
-    # Admins operate the console and also bank, so one account can drive the
-    # whole walkthrough.
-    operators = client.get(f"/admin/api/groups/{OPERATORS}", headers=_auth(token)).json()
-    assert {r["application_id"] for r in operators["roles"]} == {
-        "demo-banking-app",
-        "idp-admin-console",
+    admins = client.get(f"/admin/api/groups/{ADMINS}", headers=_auth(token)).json()
+    assert {(r["application_id"], r["name"]) for r in admins["roles"]} == {
+        ("roku-bank-console", "tenant-admin"),
     }
 
     support = client.get(f"/admin/api/groups/{SUPPORT}", headers=_auth(token)).json()
-    assert {r["name"] for r in support["roles"]} == {"support-operator"}
+    assert {r["name"] for r in support["roles"]} == {"support"}
 
 
 def test_group_crud_members_and_roles(client: TestClient) -> None:
@@ -101,12 +96,12 @@ def test_group_crud_members_and_roles(client: TestClient) -> None:
     user = client.post(
         "/admin/api/users",
         headers=_auth(token),
-        json={"email": "reader@example.com", "password": "reader-password"},
+        json={"email": "reader@correo.example", "password": "reader-password"},
     ).json()
     app = client.post(
         "/admin/api/applications",
         headers=_auth(token),
-        json={"application_id": "demo-forum-app", "name": "Demo forum"},
+        json={"application_id": "roku-bank-forum", "name": "Demo forum"},
     )
     assert app.status_code == 201
 
@@ -115,7 +110,7 @@ def test_group_crud_members_and_roles(client: TestClient) -> None:
         headers=_auth(token),
         json={
             "role_id": "role_forum_reader",
-            "application_id": "demo-forum-app",
+            "application_id": "roku-bank-forum",
             "name": "reader",
             "description": "Read threads",
         },

@@ -1,4 +1,8 @@
-"""HTTP clients for IdP-6 control-plane reads (policy on PDP, decisions on audit)."""
+"""HTTP clients for control-plane reads (policy on PDP, decisions on audit).
+
+Every call names a tenant (ADR-0033). The services filter by it; the IdP's job
+is to pass the operator's tenant, never one taken from the request body.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +14,7 @@ from rba_contracts import (
     Action,
     DecisionListResponse,
     DecisionRecord,
-    PolicyConfig,
+    TenantPolicy,
 )
 
 
@@ -19,33 +23,38 @@ class ControlPlaneUnavailable(Exception):
 
 
 class PolicyRejected(Exception):
-    """PDP rejected the PolicyConfig (422)."""
+    """PDP rejected the TenantPolicy (422)."""
 
     def __init__(self, detail: object) -> None:
         super().__init__("invalid policy")
         self.detail = detail
 
 
+class PolicyNotFound(Exception):
+    """The PDP holds no policy for this tenant (404)."""
+
+
 class AuditNotFound(Exception):
-    """Unknown event_id on the audit store."""
+    """Unknown event_id on the audit store (or another tenant's)."""
 
 
 class PolicyClient(Protocol):
-    def get_policy(self) -> PolicyConfig: ...
-    def put_policy(self, config: PolicyConfig) -> PolicyConfig: ...
+    def get_policy(self, tenant_id: str) -> TenantPolicy: ...
+    def put_policy(self, policy: TenantPolicy) -> TenantPolicy: ...
 
 
 class AuditClient(Protocol):
     def list_decisions(
         self,
         *,
+        tenant_id: str,
         user_id: str | None = None,
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = 50,
     ) -> DecisionListResponse: ...
 
-    def get_decision(self, event_id: UUID) -> DecisionRecord: ...
+    def get_decision(self, tenant_id: str, event_id: UUID) -> DecisionRecord: ...
 
 
 class HttpPolicyClient:
@@ -61,22 +70,24 @@ class HttpPolicyClient:
             timeout=timeout,
         )
 
-    def get_policy(self) -> PolicyConfig:
+    def get_policy(self, tenant_id: str) -> TenantPolicy:
         try:
-            response = self._client.get("/policy")
-            response.raise_for_status()
+            response = self._client.get(f"/tenants/{tenant_id}/policy")
         except httpx.HTTPError as exc:
             raise ControlPlaneUnavailable(str(exc)) from exc
+        if response.status_code == 404:
+            raise PolicyNotFound(tenant_id)
         try:
-            return PolicyConfig.model_validate(response.json())
+            response.raise_for_status()
+            return TenantPolicy.model_validate(response.json())
         except Exception as exc:
             raise ControlPlaneUnavailable("invalid policy response") from exc
 
-    def put_policy(self, config: PolicyConfig) -> PolicyConfig:
+    def put_policy(self, policy: TenantPolicy) -> TenantPolicy:
         try:
             response = self._client.put(
-                "/policy",
-                json=config.model_dump(mode="json"),
+                f"/tenants/{policy.tenant_id}/policy",
+                json=policy.model_dump(mode="json"),
             )
         except httpx.HTTPError as exc:
             raise ControlPlaneUnavailable(str(exc)) from exc
@@ -88,7 +99,7 @@ class HttpPolicyClient:
             raise PolicyRejected(detail)
         try:
             response.raise_for_status()
-            return PolicyConfig.model_validate(response.json())
+            return TenantPolicy.model_validate(response.json())
         except PolicyRejected:
             raise
         except Exception as exc:
@@ -115,12 +126,13 @@ class HttpAuditClient:
     def list_decisions(
         self,
         *,
+        tenant_id: str,
         user_id: str | None = None,
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = 50,
     ) -> DecisionListResponse:
-        params: dict[str, str | int] = {"limit": limit}
+        params: dict[str, str | int] = {"tenant_id": tenant_id, "limit": limit}
         if user_id:
             params["user_id"] = user_id
         if application_id:
@@ -137,9 +149,11 @@ class HttpAuditClient:
         except Exception as exc:
             raise ControlPlaneUnavailable("invalid audit response") from exc
 
-    def get_decision(self, event_id: UUID) -> DecisionRecord:
+    def get_decision(self, tenant_id: str, event_id: UUID) -> DecisionRecord:
         try:
-            response = self._client.get(f"/decisions/{event_id}")
+            response = self._client.get(
+                f"/decisions/{event_id}", params={"tenant_id": tenant_id}
+            )
         except httpx.HTTPError as exc:
             raise ControlPlaneUnavailable(str(exc)) from exc
         if response.status_code == 404:

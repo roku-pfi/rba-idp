@@ -10,19 +10,14 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import ADMIN_LOGIN, LOGIN
+from tests.helpers import ADMIN_LOGIN, ANA, LOGIN, LUCAS, SIGNALS
 
-BANK = "demo-banking-app"
-CONSOLE = "idp-admin-console"
+BANK = "roku-bank-web"
+CONSOLE = "roku-bank-console"
 
 CUSTOMER_LOGIN = LOGIN
-VIEWER_LOGIN = {**LOGIN, "email": "viewer@example.com", "password": "viewer-password"}
-SUPPORT_LOGIN = {
-    **LOGIN,
-    "email": "support@example.com",
-    "password": "support-password",
-    "application_id": CONSOLE,
-}
+VIEWER_LOGIN = {**LOGIN, "email": "sofia@correo.example", "password": "sofia-demo"}
+SUPPORT_LOGIN = ANA
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -30,7 +25,9 @@ def _auth(token: str) -> dict[str, str]:
 
 
 def _token(client: TestClient, payload: dict) -> str:
-    body = client.post("/login", json=payload).json()
+    # An app login names its application; a console login names none.
+    path = "/login" if "application_id" in payload else "/console/login"
+    body = client.post(path, json=payload).json()
     assert body["outcome"] == "AUTHENTICATED", body
     return body["session"]["token"]
 
@@ -63,21 +60,22 @@ def test_viewer_is_the_same_user_one_permission_short(client: TestClient) -> Non
 
 
 def test_permissions_are_scoped_to_the_session_application(client: TestClient) -> None:
-    """An admin holds console permissions, but a *bank* session must not expose
-    them — otherwise a relying party could authorize platform operations."""
-    bank_session = _session(client, ADMIN_LOGIN | {"application_id": BANK})
-    assert bank_session["application_id"] == BANK
-    assert bank_session["permissions"] == [
-        "account:read",
-        "transaction:read",
-        "transfer:create",
+    """Lucas administers Kaze Labs and its portal, but a *portal* session must
+    not expose console permissions — otherwise a relying party could authorize
+    console operations."""
+    portal_session = _session(client, LUCAS | {"application_id": "kaze-portal"})
+    assert portal_session["application_id"] == "kaze-portal"
+    assert portal_session["permissions"] == [
+        "portal:read",
+        "projects:write",
+        "settings:manage",
     ]
-    assert not any(p.startswith("admin:") for p in bank_session["permissions"])
+    assert not any(p.startswith("admin:") for p in portal_session["permissions"])
 
-    console_session = _session(client, ADMIN_LOGIN)
-    assert console_session["application_id"] == CONSOLE
+    console_session = _session(client, LUCAS)
+    assert console_session["application_id"] == "kaze-labs-console"
     assert "admin:write" in console_session["permissions"]
-    assert "transfer:create" not in console_session["permissions"]
+    assert "settings:manage" not in console_session["permissions"]
 
 
 def test_support_operator_holds_only_the_read_pair(client: TestClient) -> None:
@@ -120,7 +118,30 @@ def test_bank_customer_cannot_open_the_console(client: TestClient) -> None:
     token = _token(client, CUSTOMER_LOGIN)
     resp = client.get("/admin/api/users", headers=_auth(token))
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "requires permission admin:read"
+    assert resp.json()["detail"] == "not a console session"
+
+
+def test_an_admin_permission_on_an_app_does_not_open_the_console(
+    client: TestClient,
+) -> None:
+    """A tenant admin can name a permission `admin:read` on their own app. It
+    must not turn that app's sessions into console sessions."""
+    token = _token(client, ADMIN_LOGIN)
+    perm = client.post(
+        "/admin/api/permissions",
+        headers=_auth(token),
+        json={"application_id": BANK, "resource": "admin", "operation": "read"},
+    ).json()
+    client.put(
+        "/admin/api/roles/role_rb_customer/permissions",
+        headers=_auth(token),
+        json={"permission_ids": [perm["permission_id"]]},
+    )
+    customer = _token(client, CUSTOMER_LOGIN)
+    assert "admin:read" in client.get("/session", headers=_auth(customer)).json()["permissions"]
+    resp = client.get("/admin/api/users", headers=_auth(customer))
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "not a console session"
 
 
 # ------------------------------------------------------------- role admin
@@ -135,7 +156,7 @@ def test_role_permissions_are_replaced_wholesale(client: TestClient) -> None:
     assert set(by_scope) == {"account:read", "transaction:read", "transfer:create"}
 
     updated = client.put(
-        "/admin/api/roles/role_bank_viewer/permissions",
+        "/admin/api/roles/role_rb_viewer/permissions",
         headers=_auth(token),
         json={"permission_ids": [by_scope["account:read"]]},
     )
@@ -161,7 +182,7 @@ def test_a_role_cannot_carry_another_applications_permission(
         row["permission_id"] for row in console_perms if row["scope"] == "admin:write"
     )
     resp = client.put(
-        "/admin/api/roles/role_bank_customer/permissions",
+        "/admin/api/roles/role_rb_customer/permissions",
         headers=_auth(token),
         json={"permission_ids": [admin_write]},
     )
@@ -174,7 +195,7 @@ def test_a_role_cannot_carry_another_applications_permission(
 def test_unknown_permission_id_is_rejected(client: TestClient) -> None:
     token = _token(client, ADMIN_LOGIN)
     resp = client.put(
-        "/admin/api/roles/role_bank_viewer/permissions",
+        "/admin/api/roles/role_rb_viewer/permissions",
         headers=_auth(token),
         json={"permission_ids": ["perm_does_not_exist"]},
     )
@@ -207,14 +228,14 @@ def test_deleting_a_role_revokes_access_that_depended_on_it(
 ) -> None:
     token = _token(client, ADMIN_LOGIN)
     assert client.delete(
-        "/admin/api/roles/role_bank_viewer", headers=_auth(token)
+        "/admin/api/roles/role_rb_viewer", headers=_auth(token)
     ).status_code == 204
 
     denied = client.post("/login", json=VIEWER_LOGIN)
     assert denied.json()["outcome"] == "ACCESS_DENIED"
 
 
-def test_is_admin_flag_and_the_platform_role_stay_in_step(
+def test_is_admin_flag_and_the_admin_group_stay_in_step(
     client: TestClient,
 ) -> None:
     """`is_admin` is a label, but ticking it must really confer the power."""
@@ -223,7 +244,7 @@ def test_is_admin_flag_and_the_platform_role_stay_in_step(
         "/admin/api/users",
         headers=_auth(token),
         json={
-            "email": "newadmin@example.com",
+            "email": "newadmin@rokubank.example",
             "password": "newadmin-password",
             "is_admin": True,
         },
@@ -232,12 +253,7 @@ def test_is_admin_flag_and_the_platform_role_stay_in_step(
 
     new_token = _token(
         client,
-        {
-            **LOGIN,
-            "email": "newadmin@example.com",
-            "password": "newadmin-password",
-            "application_id": CONSOLE,
-        },
+        {**SIGNALS, "email": "newadmin@rokubank.example", "password": "newadmin-password"},
     )
     assert client.get("/admin/api/users", headers=_auth(new_token)).status_code == 200
 
@@ -271,7 +287,7 @@ def test_permissions_are_read_fresh_on_every_request(client: TestClient) -> None
         row["permission_id"] for row in perms if row["scope"] != "transfer:create"
     ]
     client.put(
-        "/admin/api/roles/role_bank_customer/permissions",
+        "/admin/api/roles/role_rb_customer/permissions",
         headers=_auth(admin_token),
         json={"permission_ids": keep},
     )

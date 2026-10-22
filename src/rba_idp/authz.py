@@ -22,14 +22,19 @@ from rba_idp.db.models import (
     RolePermission,
 )
 
-# Permissions on the admin console. Held by `platform-admin`; `support-operator`
-# holds only the read pair, which is exactly the actor the thesis calls the
+# Permissions on a tenant's console. Held by `tenant-admin`; `support` holds
+# only the read pair, which is exactly the actor the thesis calls the
 # "operador de soporte" (HU-10) — able to explain a decision, unable to change
 # who can log in.
 ADMIN_READ = ("admin", "read")
 ADMIN_WRITE = ("admin", "write")
 DECISIONS_READ = ("decisions", "read")
 POLICY_WRITE = ("policy", "write")
+# Platform operator only (ADR-0033). Effective only on the platform tenant's
+# console: a tenant admin can name a permission `tenants:read` on their own
+# console, and it still grants nothing.
+TENANTS_READ = ("tenants", "read")
+TENANTS_WRITE = ("tenants", "write")
 
 
 def scope(resource: str, operation: str) -> str:
