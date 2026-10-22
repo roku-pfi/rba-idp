@@ -6,7 +6,7 @@ import type { Reason } from "./api";
 
 const LOCALE = "es-AR";
 
-const dateTime = new Intl.DateTimeFormat(LOCALE, { dateStyle: "short", timeStyle: "medium" });
+const dateTime = new Intl.DateTimeFormat(LOCALE, { dateStyle: "short", timeStyle: "short" });
 const time = new Intl.DateTimeFormat(LOCALE, { timeStyle: "short" });
 const decimal = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const integer = new Intl.NumberFormat(LOCALE);
@@ -44,6 +44,31 @@ export const ACTION_LABEL: Record<string, string> = {
   REQUIRE_MFA: "Pedir passkey",
   REAUTHENTICATE: "Reautenticar",
   BLOCK: "Bloquear",
+};
+
+/** What happened to the login, as an operator reads it in a list. */
+export const OUTCOME_LABEL: Record<string, string> = {
+  ALLOW: "Permitido",
+  REQUIRE_MFA: "Pidió passkey",
+  REAUTHENTICATE: "Reautenticación",
+  BLOCK: "Bloqueado",
+};
+
+const regions = new Intl.DisplayNames([LOCALE], { type: "region" });
+/** "JP" → "Japón"; unknown or missing codes come back as given. */
+export function countryName(code?: string | null): string {
+  if (!code) return "País desconocido";
+  try {
+    return regions.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+export const DEVICE_LABEL: Record<string, string> = {
+  desktop: "Computadora",
+  mobile: "Celular",
+  tablet: "Tablet",
 };
 
 export const LEVEL_LABEL: Record<string, string> = {
@@ -104,4 +129,30 @@ export function reasonText(reason: Reason): { text: string; title: string } {
   const perSignal = reason.code.startsWith("signal_");
   const text = perSignal ? `${signalLabel(reason.signal)}: ${what}` : what[0].toUpperCase() + what.slice(1);
   return { text, title };
+}
+
+const n = (text: string) => integer.format(Number(text));
+
+/** The engine writes rule details in English (they are also log lines); the
+ *  console says them in Spanish. Unknown shapes are left out (raw on hover). */
+export function reasonDetail(code: string, detail?: string | null): string | null {
+  if (!detail) return null;
+  let m: RegExpMatchArray | null;
+  if (code === "impossible_travel" && (m = detail.match(/from (\S+) to (\S+) \((\d+) km at ~(\d+) km\/h; threshold (\d+)/))) {
+    return `De ${countryName(m[1])} a ${countryName(m[2])}: ${n(m[3])} km a unos ${n(m[4])} km/h (el máximo creíble es ${n(m[5])} km/h).`;
+  }
+  if (code === "impossible_travel" && (m = detail.match(/from (\S+) to (\S+)/))) {
+    return `De ${countryName(m[1])} a ${countryName(m[2])}, más rápido de lo posible.`;
+  }
+  if (code === "vpn_or_hosting" && (m = detail.match(/ASN (\S+)/))) {
+    return `La red AS${m[1].replace(/^AS/, "")} es de VPN o hosting; por eso no se evalúa el viaje.`;
+  }
+  if ((code === "failed_login_burst" || code === "failed_login_lockout") && (m = detail.match(/^(\d+) failed.*threshold (\d+)/))) {
+    return `${n(m[1])} contraseñas incorrectas en 24 h (el umbral es ${n(m[2])}).`;
+  }
+  if (code === "low_history" && (m = detail.match(/only (\d+) prior/))) {
+    return `Solo ${n(m[1])} inicios previos: el perfil todavía tiene poco para comparar.`;
+  }
+  if (code === "pdp_unavailable") return "El motor no respondió; se aplicó la decisión de respaldo.";
+  return null;
 }

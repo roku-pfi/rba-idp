@@ -36,9 +36,9 @@ import { Groups } from "./pages/Groups";
 import { Policy } from "./pages/Policy";
 import { Roles } from "./pages/Roles";
 import { Users } from "./pages/Users";
-import { hrefOf, navigate, PAGES, SECTIONS, usePage, type Page, type Section } from "./router";
+import { hrefOf, navigate, PAGES, SECTIONS, useRoute, type Page, type Section } from "./router";
 
-const PAGE_VIEW: Record<Page, () => JSX.Element> = {
+const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element> = {
   decisions: Decisions,
   policy: Policy,
   users: Users,
@@ -48,7 +48,7 @@ const PAGE_VIEW: Record<Page, () => JSX.Element> = {
 };
 
 // Pages already rebuilt on Carbon; the rest keep their old look (U-2).
-const CARBON_PAGES = new Set<Page>(["users"]);
+const CARBON_PAGES = new Set<Page>(["users", "decisions"]);
 
 const SECTION_ICON: Record<Section, typeof Activity> = {
   activity: Activity,
@@ -77,7 +77,7 @@ export default function App() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [scope, setScope] = useState<string | null>(actingTenant());
   const [accountOpen, setAccountOpen] = useState(false);
-  const page = usePage();
+  const { page, id: itemId } = useRoute();
 
   useEffect(() => {
     if (!currentToken()) {
@@ -246,7 +246,7 @@ export default function App() {
 
       <Content id="main-content" className={`rk-content${CARBON_PAGES.has(page) ? "" : " legacy"}`}>
         {/* Remounted per tenant, so no page shows the previous tenant's rows. */}
-        <View key={scopeId} />
+        <View key={scopeId} itemId={itemId} />
         {/* CC BY 4.0 attribution for the IP → country/ASN data (ADR-0032). */}
         <p className="rk-secondary" style={{ marginTop: "3rem" }}>
           <a className="cds--link" href="https://db-ip.com" rel="noopener">

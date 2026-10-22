@@ -98,7 +98,37 @@ export type Decision = {
   simulated?: boolean;
   reasons: Reason[];
   policy_version: string;
+  model_version: string;
+  feature_schema_version: string;
   fallback: boolean;
+  /** The login as observed (contracts 0.13.0); absent on older records. */
+  login?: LoginSnapshot | null;
+  /** Which signals the user had used before, as the model saw it. */
+  features?: Features | null;
+};
+
+export type LoginSnapshot = {
+  login_timestamp: string;
+  ip_address: string;
+  asn?: string | null;
+  country?: string | null;
+  device_type?: string | null;
+  os?: string | null;
+  browser?: string | null;
+  login_successful: boolean;
+};
+
+export type Features = {
+  user_login_count: number;
+  ip_seen_before: number;
+  asn_seen_before: number;
+  country_seen_before: number;
+  device_type_seen_before: number;
+  os_seen_before: number;
+  browser_seen_before: number;
+  hour_seen_before: number;
+  seconds_since_last_login: number;
+  failed_logins_last_24h: number;
 };
 
 function token(): string | null {

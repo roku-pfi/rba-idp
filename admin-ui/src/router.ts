@@ -27,30 +27,36 @@ export const PAGES: { id: Page; slug: string; label: string; section: Section }[
 const BASE = "/admin/";
 const HOME: Page = "decisions";
 
-function pageFromPath(pathname: string): Page {
-  const slug = pathname.startsWith(BASE) ? pathname.slice(BASE.length).split("/")[0] : "";
-  return PAGES.find((page) => page.slug === slug)?.id ?? HOME;
+type Route = { page: Page; id: string | null };
+
+/** /admin/<slug>[/<id>]: a page, and optionally one item on it. */
+function routeFromPath(pathname: string): Route {
+  const [slug = "", id = ""] = pathname.startsWith(BASE) ? pathname.slice(BASE.length).split("/") : [];
+  const page = PAGES.find((item) => item.slug === slug)?.id;
+  return page ? { page, id: id ? decodeURIComponent(id) : null } : { page: HOME, id: null };
 }
 
-export function hrefOf(page: Page): string {
-  return BASE + PAGES.find((item) => item.id === page)!.slug;
+export function hrefOf(page: Page, id?: string): string {
+  const base = BASE + PAGES.find((item) => item.id === page)!.slug;
+  return id ? `${base}/${encodeURIComponent(id)}` : base;
 }
 
-export function navigate(page: Page): void {
-  const href = hrefOf(page);
+export function navigate(page: Page, id?: string): void {
+  const href = hrefOf(page, id);
   if (window.location.pathname !== href) window.history.pushState(null, "", href);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-export function usePage(): Page {
-  const [page, setPage] = useState<Page>(() => pageFromPath(window.location.pathname));
+export function useRoute(): Route {
+  const [route, setRoute] = useState<Route>(() => routeFromPath(window.location.pathname));
   useEffect(() => {
     // An unknown or bare /admin path settles on the home page's URL.
-    const canonical = hrefOf(pageFromPath(window.location.pathname));
+    const current = routeFromPath(window.location.pathname);
+    const canonical = hrefOf(current.page, current.id ?? undefined);
     if (window.location.pathname !== canonical) window.history.replaceState(null, "", canonical);
-    const sync = () => setPage(pageFromPath(window.location.pathname));
+    const sync = () => setRoute(routeFromPath(window.location.pathname));
     window.addEventListener("popstate", sync);
     return () => window.removeEventListener("popstate", sync);
   }, []);
-  return page;
+  return route;
 }

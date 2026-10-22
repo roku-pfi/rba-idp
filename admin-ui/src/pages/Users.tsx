@@ -27,6 +27,7 @@ import { Add, CheckmarkFilled, CircleDash, WarningAltFilled } from "@carbon/icon
 import { FormEvent, useMemo, useState } from "react";
 import { api, type AdminUser } from "../api";
 import { useConsole } from "../console";
+import { Avatar, hash, TAG_TYPES } from "../components";
 import { fmt } from "../i18n";
 import { useLoad } from "./load";
 
@@ -38,17 +39,10 @@ const HEADERS = [
   { key: "status", header: "Estado" },
 ];
 
-// A person and a group keep their colour across pages and sessions.
-const AVATAR_COLORS = ["#1466e5", "#007d79", "#8a3ffc", "#d02670", "#198038", "#0072c3"];
-const TAG_TYPES = ["blue", "teal", "purple", "magenta", "green", "cyan"] as const;
-const hash = (text: string) => [...text].reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) >>> 0, 7);
-
 function Person({ user }: { user: AdminUser }) {
   return (
     <div className="rk-cell">
-      <span className="rk-avatar" style={{ background: AVATAR_COLORS[hash(user.email) % AVATAR_COLORS.length] }} aria-hidden="true">
-        {user.email[0].toUpperCase()}
-      </span>
+      <Avatar email={user.email} />
       <span className="rk-cell-text">
         <span className="rk-primary">{user.email}</span>
         <span className="rk-secondary">
