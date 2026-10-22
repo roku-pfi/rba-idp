@@ -123,6 +123,9 @@ def hosted_boot(
         "redirect_uri": redirect_uri,
         "simulated": signals.simulated,
         "simulation_ticket": ticket_text,
+        # Local development only (never in the cloud, C-1): a user with no
+        # passkey can pass a step-up with the fixed test code on this page.
+        "mock_otp": settings.mock_otp_enabled,
     }
 
 

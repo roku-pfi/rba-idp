@@ -272,3 +272,12 @@ def test_the_cli_issues_the_first_code(monkeypatch, capsys) -> None:
         assert resp.status_code == 204
         # A user of another tenant is not found by name alone.
         assert activation.main(["juan@rokusec.example", "--tenant", "roku-bank"]) == 1
+
+
+def test_the_test_code_field_exists_only_where_the_mock_otp_does() -> None:
+    """Locally the page offers the test code to a user with no passkey; a
+    deployment never tells the page such a code exists."""
+    with _deployed(_step_up_pdp()) as client:
+        assert '"mock_otp": false' in client.get("/console/login").text
+    with client_for(_step_up_pdp(), settings=make_settings(mock_otp_enabled=True)) as client:
+        assert '"mock_otp": true' in client.get("/console/login").text

@@ -139,6 +139,8 @@
     const button = document.getElementById("mfa-submit");
     stepUpKey = null;
     button.disabled = true;
+    button.style.display = "";
+    document.getElementById("form-otp").hidden = true;
     try {
       const resp = await fetch("/mfa/webauthn/options", {
         method: "POST",
@@ -146,6 +148,14 @@
         body: JSON.stringify({ challenge_id: challengeId }),
       });
       if (resp.status !== 200) {
+        if (boot.mock_otp) {
+          // No passkey to use; locally the test code stands in for one.
+          button.style.display = "none";
+          document.getElementById("form-otp").hidden = false;
+          document.getElementById("form-otp").dataset.challengeId = challengeId;
+          document.getElementById("otp").focus();
+          return;
+        }
         setError("mfa-error", "This challenge is unknown or expired.");
         return;
       }
@@ -381,6 +391,25 @@
     } finally {
       submit.disabled = false;
     }
+  });
+
+  document.getElementById("form-otp").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setError("mfa-error", "");
+    const form = event.currentTarget;
+    const payload = { challenge_id: form.dataset.challengeId, code: document.getElementById("otp").value.trim() };
+    if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
+    const resp = await fetch("/mfa/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await parseJson(resp);
+    if (resp.status !== 200 || body.outcome === "INVALID_CREDENTIALS") {
+      setError("mfa-error", "That code is not valid.");
+      return;
+    }
+    applyOutcome(body, resp.status);
   });
 
   document.getElementById("form-logout").addEventListener("submit", async (event) => {

@@ -42,6 +42,12 @@
         <p class="hint" id="mfa-inapp" hidden></p>
         <p class="form-error" id="mfa-error" hidden></p>
         <button type="button" id="mfa-submit">Confirm it’s you</button>
+        <form id="form-otp" hidden>
+          <p class="hint">Test environment: this user has no passkey. Enter the test code.</p>
+          <label for="otp">Test code</label>
+          <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required>
+          <button type="submit" id="otp-submit">Verify code</button>
+        </form>
         <p class="hint" id="mfa-wait" hidden></p>
         <p class="back"><a href="#" id="challenge-restart">Use a different account</a></p>
       </section>
