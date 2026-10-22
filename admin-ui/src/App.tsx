@@ -54,7 +54,7 @@ const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element>
 };
 
 // Pages already rebuilt on Carbon; the rest keep their old look (U-2).
-const CARBON_PAGES = new Set<Page>(["home", "events", "users", "account"]);
+const CARBON_PAGES = new Set<Page>(["home", "events", "users", "account", "policy"]);
 
 const SECTION_ICON: Record<Section, typeof Activity> = {
   activity: Activity,

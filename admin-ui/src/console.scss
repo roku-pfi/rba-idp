@@ -309,6 +309,89 @@ body {
 .rk-session { margin-bottom: 1rem; }
 .rk-account-page .cds--structured-list { margin-bottom: 0; }
 
+// ---------------------------------------------------------------- policy
+.rk-actions { display: flex; align-items: center; gap: 0.5rem; }
+
+.rk-policy {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+  @media (max-width: 66rem) { grid-template-columns: minmax(0, 1fr); }
+  .rk-card--full { grid-column: 1 / -1; }
+}
+
+// Carbon wraps the tiles in an unnamed <div> inside the fieldset.
+.rk-modes {
+  margin: 0;
+  > div {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    @media (max-width: 42rem) { grid-template-columns: minmax(0, 1fr); }
+  }
+  .cds--radio-tile__wrapper { margin: 0; }
+  .cds--tile { background: var(--cds-layer-02); min-height: 0; height: 100%; }
+}
+.rk-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  @include type-style('heading-compact-01');
+  svg { fill: var(--cds-icon-secondary); }
+}
+
+.rk-bandbar { position: relative; margin: 0.5rem 0 1.5rem; }
+.rk-bandbar-track {
+  display: flex;
+  gap: 2px;
+  height: 0.75rem;
+  span { display: block; height: 100%; transition: width 160ms ease; }
+  span:first-child { border-radius: 2px 0 0 2px; }
+  span:last-child { border-radius: 0 2px 2px 0; }
+}
+.rk-bandbar-dots {
+  position: relative;
+  height: 0.75rem;
+  margin-top: 0.25rem;
+  i {
+    position: absolute;
+    top: 0.25rem;
+    width: 0.25rem;
+    height: 0.25rem;
+    margin-left: -0.125rem;
+    border-radius: 50%;
+    background: var(--cds-text-secondary);
+    opacity: 0.6;
+  }
+}
+.rk-bandbar-scale {
+  display: flex;
+  justify-content: space-between;
+  @include type-style('helper-text-01');
+  color: var(--cds-text-secondary);
+}
+
+.rk-levels {
+  width: 100%;
+  max-width: 44rem;
+  border-collapse: collapse;
+  @include type-style('body-compact-01');
+  th { text-align: left; @include type-style('label-01'); color: var(--cds-text-secondary); padding: 0 1rem 0.5rem 0; }
+  td { padding: 0.375rem 1rem 0.375rem 0; border-top: 1px solid var(--cds-border-subtle-01); vertical-align: middle; }
+  .rk-num { font-variant-numeric: tabular-nums; }
+  .cds--number { width: 8rem; }
+  .cds--dropdown__wrapper { width: 12rem; }
+}
+.rk-issues { margin: 1rem 0 0; padding: 0; list-style: none; color: var(--cds-text-error); @include type-style('body-compact-01'); }
+
+.rk-impact { margin: 0; }
+.rk-delta {
+  @include type-style('body-compact-01');
+  color: var(--cds-text-secondary);
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
 // ---------------------------------------------------------------- decisions
 .rk-inline-tag { margin: 0 0 0 0.5rem; vertical-align: middle; }
 
