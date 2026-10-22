@@ -367,7 +367,8 @@ def starter_policy(tenant_id: str) -> TenantPolicy:
         base_policy=BasePolicy.PASSWORD_ONLY,
         engine_mode=EngineMode.MONITOR,
         score_to_level=[
-            ScoreBand(max=0.30, level=RiskLevel.LOW),
+            # D-2: LOW up to 0.40 stops as many takeovers as 0.30 with less friction.
+            ScoreBand(max=0.40, level=RiskLevel.LOW),
             ScoreBand(max=0.60, level=RiskLevel.MEDIUM),
             ScoreBand(max=0.80, level=RiskLevel.HIGH),
             ScoreBand(max=1.00, level=RiskLevel.CRITICAL),
@@ -376,7 +377,9 @@ def starter_policy(tenant_id: str) -> TenantPolicy:
             LOW=Action.ALLOW,
             MEDIUM=Action.REQUIRE_MFA,
             HIGH=Action.REAUTHENTICATE,
-            CRITICAL=Action.BLOCK,
+            # D-2: blocking on the score blocked 6% of legitimate logins and
+            # stopped no takeover a step-up would not; blocks come from rules.
+            CRITICAL=Action.REAUTHENTICATE,
         ),
         fallback_action=Action.REQUIRE_MFA,
     )
