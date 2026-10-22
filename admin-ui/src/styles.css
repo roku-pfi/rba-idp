@@ -12,89 +12,194 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-.admin-shell {
-  max-width: 72rem;
-  margin: 0 auto;
-  padding: 1.6rem 1.5rem 2.5rem;
+/* The shell: a sidebar with the logo, the organisation, the sections and the
+   account; the page fills the rest. Under 860px the sidebar becomes a top bar
+   and the sections a scrolling row. */
+.app {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-height: 100vh;
 }
 
-.admin-top {
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 1.2rem;
+  flex-direction: column;
+  gap: 1.4rem;
+  padding: 1.4rem 1rem 1rem;
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ground) 70%, transparent);
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-}
+.sidebar-logo { display: inline-flex; padding: 0 0.45rem; }
 
-/* The logo is an <img>: the horizontal lockup, inverse on the dark console. */
 .brand-logo {
   display: block;
   height: 34px;
   width: auto;
 }
 
-/* The page's own name sits after the logo, set off by a hairline. */
-.brand-logo + .brand-sub {
-  padding-left: 0.6rem;
-  border-left: 1px solid var(--line);
-}
-
-.brand-sub {
-  margin: 0;
+.eyebrow {
+  display: block;
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.who { font-size: 0.82rem; color: var(--muted); }
-.who button { display: inline; width: auto; margin: 0 0 0 0.75rem; }
+.org { display: flex; flex-direction: column; gap: 0.35rem; padding: 0 0.45rem; }
+.org strong { font-size: 0.92rem; font-weight: 600; }
+.org select { width: 100%; }
+.org .acting { font-size: 0.75rem; color: var(--sev-2); }
 
-/* The role the console is being operated with — the answer to "why can I see
-   this button and my colleague cannot". */
-.who .role {
-  margin-left: 0.35rem;
-  padding: 0.14rem 0.4rem;
+.nav { display: flex; flex-direction: column; gap: 0.1rem; }
+.nav a {
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.nav a:hover { background: var(--sunk); color: var(--ink); text-decoration: none; }
+.nav a[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Account: pinned to the bottom of the sidebar; opens upwards. */
+.account { position: relative; margin-top: auto; }
+.account summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.account summary::-webkit-details-marker { display: none; }
+.account summary:hover, .account[open] summary { background: var(--sunk); }
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.account-who { display: flex; flex-direction: column; min-width: 0; }
+.account-email { font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-role { font-size: 0.72rem; color: var(--faint); }
+.account-menu {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, .6);
+  z-index: 5;
+}
+.scopes { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.scope {
+  padding: 0.12rem 0.4rem;
   border-radius: 3px;
   background: var(--accent-soft);
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
 }
 
-nav.tabs {
+.content {
+  min-width: 0;
+  max-width: 76rem;
+  padding: 1.6rem 2rem 2.5rem;
+}
+
+.attribution { margin-top: 2rem; font-size: 0.78rem; }
+
+.center-note {
+  max-width: 32rem;
+  margin: 12vh auto 0;
+  padding: 0 1rem;
   display: flex;
-  gap: 0.2rem;
-  margin: 0 0 1.1rem;
-  border-bottom: 1px solid var(--line);
+  flex-direction: column;
+  gap: 1.4rem;
 }
 
-nav.tabs button {
-  width: auto;
-  margin: 0;
-  padding: 0.5rem 0.8rem;
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.8rem 1rem;
+    padding: 0.9rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .org { flex: 1; min-width: 10rem; }
+  .account { margin: 0; }
+  .account-who { display: none; }
+  .account-menu { bottom: auto; top: calc(100% + 0.4rem); left: auto; width: 16rem; }
+  .nav { order: 5; flex-direction: row; flex-basis: 100%; overflow-x: auto; }
+  .nav a { white-space: nowrap; }
+  .nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); }
+  .content { padding: 1.2rem 1rem 2rem; }
+  .panel { padding: 1rem; }
+  .split { grid-template-columns: 1fr; }
+}
+
+/* Toasts: what just happened. Errors stay until closed. */
+.toasts {
+  position: fixed;
+  right: 1.2rem;
+  bottom: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(28rem, calc(100vw - 2.4rem));
+  z-index: 10;
+}
+.toast {
+  display: flex;
+  align-items: start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.6rem 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--sev-1);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, .6);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.toast.error { border-left-color: var(--sev-4); }
+.toast span { flex: 1; overflow-wrap: anywhere; }
+.toast button {
+  padding: 0 0.3rem;
   background: transparent;
-  color: var(--muted);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  font-size: 0.84rem;
-  font-weight: 500;
+  color: var(--faint);
+  font-size: 1.1rem;
+  line-height: 1;
 }
-
-nav.tabs button:hover { background: transparent; color: var(--ink); }
-nav.tabs button.active {
-  color: var(--ink);
-  font-weight: 600;
-  border-bottom-color: var(--accent);
-}
+.toast button:hover { background: transparent; color: var(--ink); }
 
 .panel {
   background: var(--surface);
@@ -102,6 +207,8 @@ nav.tabs button.active {
   border-radius: var(--radius);
   padding: 1.3rem 1.3rem 1.15rem;
   box-shadow: var(--shadow);
+  /* Wide tables scroll inside the panel, never the page. */
+  overflow-x: auto;
 }
 
 h1 {
@@ -207,16 +314,6 @@ button.secondary {
   font-size: 0.82rem;
 }
 button.secondary:hover { background: var(--sunk); }
-
-.form-error, .ok-msg {
-  margin: 0 0 0.9rem;
-  padding: 0.55rem 0.75rem;
-  border-radius: 6px;
-  border-left: 2px solid var(--muted);
-  background: var(--sunk);
-  font-size: 0.86rem;
-}
-.ok-msg { border-left-color: var(--sev-1); color: var(--sev-1); }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 

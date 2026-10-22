@@ -5,6 +5,7 @@ Cross-tenant isolation has its own file, `test_tenancy.py`.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -62,15 +63,23 @@ def test_admin_page(client: TestClient) -> None:
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Consola · RokuSec" in resp.text
-    assert "/static/admin.js" in resp.text or 'id="root"' in resp.text
+    assert 'id="root"' in resp.text
 
 
-def test_admin_static_assets(client: TestClient) -> None:
-    css = client.get("/static/admin.css")
-    js = client.get("/static/admin.js")
-    assert css.status_code == 200
+def test_console_pages_are_urls(client: TestClient) -> None:
+    """Every section has its own address; a reload lands on the same page."""
+    for slug in ("decisiones", "politica", "usuarios", "grupos", "roles", "aplicaciones"):
+        resp = client.get(f"/admin/{slug}")
+        assert resp.status_code == 200 and 'id="root"' in resp.text, slug
+    assert client.get("/admin/api/nope").status_code == 404
+
+
+def test_admin_bundle_is_served(client: TestClient) -> None:
+    index = client.get("/admin").text
+    script = re.search(r'src="(/admin/assets/[^"]+\.js)"', index)
+    assert script, index
+    js = client.get(script.group(1))
     assert js.status_code == 200
-    assert "Decisions" in js.text
     assert "/admin/api/policy" in js.text
     assert "/admin/api/groups" in js.text
 

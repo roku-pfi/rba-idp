@@ -92,20 +92,10 @@ Auth = Annotated[str | None, Header(alias="Authorization")]
 ActingTenant = Annotated[str | None, Header(alias=TENANT_HEADER)]
 
 ADMIN_DIR = WEB_DIR / "admin"
-ADMIN_INDEX_HTML = """<!doctype html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Consola · RokuSec</title>
-  <link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/theme.css">
-  <link rel="stylesheet" href="/static/admin.css">
-</head>
-<body>
-  <div id="root"></div>
-  <script src="/static/admin.js"></script>
-</body>
+# Served only when admin-ui has not been built (`npm run build` writes ADMIN_DIR).
+ADMIN_MISSING_HTML = """<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Consola · RokuSec</title></head>
+<body><p>La consola no está compilada: <code>cd admin-ui &amp;&amp; npm run build</code>.</p></body>
 </html>
 """
 
@@ -662,7 +652,7 @@ def create_app(
         index = ADMIN_DIR / "index.html"
         if index.is_file():
             return FileResponse(index, media_type="text/html")
-        return HTMLResponse(ADMIN_INDEX_HTML)
+        return HTMLResponse(ADMIN_MISSING_HTML, status_code=503)
 
     return app
 

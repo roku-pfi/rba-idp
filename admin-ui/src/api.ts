@@ -5,7 +5,6 @@ const SESSION_KEY = "rba.idp.session";
 const TENANT_KEY = "rba.console.tenant";
 const TENANT_HEADER = "X-RokuSec-Tenant";
 
-export type Tab = "decisions" | "policy" | "users" | "apps" | "groups" | "roles";
 
 export type SessionUser = {
   tenant_id: string;
