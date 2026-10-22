@@ -25,7 +25,7 @@ from rba_idp.config import Settings
 
 
 def _origins(settings: Settings) -> list[str]:
-    return [part.strip() for part in settings.webauthn_origin.split(",") if part.strip()]
+    return settings.webauthn_origins()
 
 
 def creation_options(settings: Settings, *, user_id: str, email: str) -> tuple[bytes, dict]:

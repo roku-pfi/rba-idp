@@ -271,6 +271,8 @@ kubectl exec deploy/idp -- python -m rba_idp.activation juan@rokusec.example --t
 
 | Variable | Default | Notes |
 |---|---|---|
+| `DEPLOYMENT` | `local` | `cloud` refuses to start while any local-only default remains (memory DB, mock OTP, `rba:rba`/localhost URLs, non-https public URL / WebAuthn origins, RP ID `localhost`, seed suffix `demo`), listing every problem at once |
+| `PUBLIC_URL` | `http://localhost:8001` | browser-facing origin of this IdP (CloudFront in the cloud) |
 | `DATABASE_URL` | `postgresql+psycopg://rba:rba@localhost:5432/rba_idp` | |
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
 | `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |
