@@ -102,6 +102,7 @@
       document.getElementById("mfa-submit").dataset.challengeId = body.challenge_id;
       setError("mfa-error", "");
       show("challenge");
+      prepareStepUp(body.challenge_id);
       return;
     }
     if (outcome === "AUTHENTICATED" && body.session?.token) {
@@ -112,6 +113,7 @@
         pendingLogin = body;
         setError("offer-error", "");
         show("offer");
+        prepareOffer();
         return;
       }
       continueAfterLogin(body);
@@ -122,6 +124,55 @@
   }
 
   let pendingLogin = null;
+
+  // Mobile browsers (iOS Safari above all) open the passkey prompt only when
+  // navigator.credentials.get()/create() runs straight from a tap; awaiting a
+  // request first cancels it (NotAllowedError, shown as "cancelled"). So the
+  // options are fetched as soon as the panel appears, and the button goes
+  // directly to the prompt.
+  let stepUpKey = null;
+  let offerKey = null;
+
+  async function prepareStepUp(challengeId) {
+    const button = document.getElementById("mfa-submit");
+    stepUpKey = null;
+    button.disabled = true;
+    try {
+      const resp = await fetch("/mfa/webauthn/options", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ challenge_id: challengeId }),
+      });
+      if (resp.status !== 200) {
+        setError("mfa-error", "This challenge is unknown or expired.");
+        return;
+      }
+      stepUpKey = publicKeyFromJson((await parseJson(resp)).public_key);
+    } catch {
+      setError("mfa-error", "Couldn't reach the server. Start again.");
+    } finally {
+      button.disabled = stepUpKey === null;
+    }
+  }
+
+  async function prepareOffer() {
+    const button = document.getElementById("offer-add");
+    offerKey = null;
+    button.disabled = true;
+    try {
+      const resp = await fetch("/passkeys/options", { method: "POST", headers: authHeader() });
+      if (resp.status !== 200) {
+        // The window closed or a passkey exists now; nothing to add.
+        continueAfterLogin(pendingLogin);
+        return;
+      }
+      offerKey = publicKeyFromJson((await parseJson(resp)).public_key);
+    } catch {
+      continueAfterLogin(pendingLogin);
+    } finally {
+      button.disabled = offerKey === null;
+    }
+  }
 
   function continueAfterLogin(body) {
     if (body.redirect_to) {
@@ -196,19 +247,9 @@
     button.disabled = true;
     setError("offer-error", "");
     try {
-      const optionsResp = await fetch("/passkeys/options", {
-        method: "POST",
-        headers: authHeader(),
-      });
-      if (optionsResp.status !== 200) {
-        // The window closed or a passkey exists now; nothing to add.
-        continueAfterLogin(pendingLogin);
-        return;
-      }
-      const options = await parseJson(optionsResp);
-      const cred = await navigator.credentials.create({
-        publicKey: publicKeyFromJson(options.public_key),
-      });
+      if (!offerKey) return;
+      // First thing in the tap handler: nothing awaited before it.
+      const cred = await navigator.credentials.create({ publicKey: offerKey });
       const resp = await fetch("/passkeys/verify", {
         method: "POST",
         headers: { "content-type": "application/json", ...authHeader() },
@@ -291,20 +332,12 @@
       setError("mfa-error", "This browser cannot confirm this device.");
       return;
     }
+    if (!stepUpKey) return;
     submit.disabled = true;
     try {
-      const optionsResp = await fetch("/mfa/webauthn/options", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ challenge_id: challengeId }),
-      });
-      const optionsBody = await parseJson(optionsResp);
-      if (optionsResp.status === 400) {
-        setError("mfa-error", "This challenge is unknown or expired.");
-        return;
-      }
-      const publicKey = publicKeyFromJson(optionsBody.public_key);
-      const cred = await navigator.credentials.get({ publicKey });
+      // First thing in the tap handler: nothing awaited before it. The same
+      // options serve a retry: the challenge stays open until it succeeds.
+      const cred = await navigator.credentials.get({ publicKey: stepUpKey });
       if (!cred) {
         setError("mfa-error", "Confirmation was cancelled.");
         return;

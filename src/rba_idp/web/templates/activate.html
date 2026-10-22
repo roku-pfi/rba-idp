@@ -24,8 +24,15 @@
           <label for="password">Password</label>
           <input id="password" name="password" type="password" autocomplete="current-password" required>
           <p class="form-error" id="activate-error" hidden></p>
-          <button type="submit" id="activate-submit">Create passkey</button>
+          <button type="submit" id="activate-submit">Continue</button>
         </form>
+      </section>
+
+      <section id="panel-create" hidden>
+        <h1>Create your passkey</h1>
+        <p class="lede">Code and password are right. Now this device will ask you to confirm with your fingerprint, face or screen lock.</p>
+        <p class="form-error" id="create-error" hidden></p>
+        <button type="button" id="create-submit">Create passkey</button>
       </section>
 
       <section id="panel-done" hidden>

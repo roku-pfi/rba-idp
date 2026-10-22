@@ -1,56 +1,85 @@
 // ADR-0037: enroll a passkey with an operator-issued code plus the password.
+//
+// Two taps on purpose. Mobile browsers (iOS Safari above all) only open the
+// passkey prompt when navigator.credentials.create() runs straight from a
+// tap; awaiting a network request first cancels it ("NotAllowedError"). So
+// the first tap checks the code and fetches the options, and the second tap
+// goes directly to create().
 (() => {
   const { publicKeyFromJson, credentialToJson } = window.RbaPasskey;
-  const error = document.getElementById("activate-error");
+  let code = "";
+  let publicKey = null;
 
-  function setError(message) {
-    error.hidden = !message;
-    error.textContent = message || "";
+  function setError(id, message) {
+    const el = document.getElementById(id);
+    el.hidden = !message;
+    el.textContent = message || "";
+  }
+
+  function show(id) {
+    for (const panel of ["panel-form", "panel-create", "panel-done"]) {
+      document.getElementById(panel).hidden = panel !== id;
+    }
   }
 
   document.getElementById("form-activate").addEventListener("submit", async (event) => {
     event.preventDefault();
-    setError("");
+    setError("activate-error", "");
     if (!window.PublicKeyCredential) {
-      setError("This browser cannot create a passkey.");
+      setError("activate-error", "This browser cannot create a passkey.");
       return;
     }
     const submit = document.getElementById("activate-submit");
     submit.disabled = true;
-    const code = document.getElementById("code").value;
+    code = document.getElementById("code").value;
     try {
-      const optionsResp = await fetch("/activate/options", {
+      const resp = await fetch("/activate/options", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ code, password: document.getElementById("password").value }),
       });
-      if (optionsResp.status !== 200) {
-        setError("The code or the password is not right, or the code has expired.");
+      if (resp.status !== 200) {
+        setError("activate-error", "The code or the password is not right, or the code has expired.");
         return;
       }
-      const options = await optionsResp.json();
-      const cred = await navigator.credentials.create({
-        publicKey: publicKeyFromJson(options.public_key),
-      });
+      publicKey = publicKeyFromJson((await resp.json()).public_key);
+      setError("create-error", "");
+      show("panel-create");
+    } catch {
+      setError("activate-error", "Couldn't reach the server. Try again.");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  document.getElementById("create-submit").addEventListener("click", async () => {
+    if (!publicKey) return;
+    const button = document.getElementById("create-submit");
+    button.disabled = true;
+    setError("create-error", "");
+    try {
+      // First thing in the tap handler: nothing awaited before it.
+      const cred = await navigator.credentials.create({ publicKey });
       const resp = await fetch("/activate/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ code, credential: credentialToJson(cred) }),
       });
       if (resp.status !== 204) {
-        setError("Couldn't save the passkey. Ask support for a new code.");
+        setError("create-error", "Couldn't save the passkey. Ask support for a new code.");
         return;
       }
-      document.getElementById("panel-form").hidden = true;
-      document.getElementById("panel-done").hidden = false;
+      show("panel-done");
     } catch (err) {
+      const name = err && err.name ? err.name : "Error";
       setError(
-        err && err.name === "NotAllowedError"
-          ? "Cancelled. You can try again with the same code."
-          : "Couldn't save the passkey. Ask support for a new code."
+        "create-error",
+        name === "NotAllowedError"
+          ? "The device did not create the passkey (cancelled or not allowed). Tap again to retry."
+          : `Couldn't create the passkey (${name}). Ask support for a new code.`
       );
     } finally {
-      submit.disabled = false;
+      button.disabled = false;
     }
   });
 })();
