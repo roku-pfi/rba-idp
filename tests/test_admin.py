@@ -316,3 +316,11 @@ def test_every_static_file_ships_in_the_package() -> None:
         str(p.relative_to(package)) for p in web if not any(fnmatch(str(p.relative_to(package)), pat) and "/" not in str(p.relative_to(package))[len(pat.rstrip("*")):] for pat in patterns)
     ]
     assert unshipped == []
+
+
+def test_the_effectiveness_numbers_are_served_to_operators(client: TestClient) -> None:
+    """D-2's comparison, for the console's Efectividad page."""
+    assert client.get("/admin/api/effectiveness").status_code == 401
+    body = client.get("/admin/api/effectiveness", headers=_auth(_admin_token(client))).json()
+    assert body["meta"]["ato"] == 38
+    assert body["policies"]["adaptive_default"]["ato_stopped"]["k"] == 32

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -647,6 +649,16 @@ def create_app(
     ) -> TenantPolicy:
         service, op = _op(request, authorization, tenant, POLICY_WRITE)
         return service.put_policy(op, body)
+
+    @app.get("/admin/api/effectiveness")
+    def admin_effectiveness(
+        request: Request, authorization: Auth = None, tenant: ActingTenant = None
+    ) -> dict:
+        """D-2: how each policy did on the held-out evaluation logins. The same
+        numbers for every tenant: they are evidence about the engine, not data
+        of the tenant."""
+        _op(request, authorization, tenant)
+        return json.loads((Path(__file__).parent / "data" / "policy_comparison.json").read_text())
 
     @app.get("/admin", include_in_schema=False)
     @app.get("/admin/{path:path}", include_in_schema=False)

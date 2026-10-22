@@ -34,6 +34,7 @@ import { Avatar } from "./components";
 import { ConsoleProvider } from "./console";
 import { Account, standing } from "./pages/Account";
 import { Apps } from "./pages/Apps";
+import { Effectiveness } from "./pages/Effectiveness";
 import { Events } from "./pages/Events";
 import { Orgs } from "./pages/Orgs";
 import { Home } from "./pages/Home";
@@ -46,6 +47,7 @@ import { hrefOf, navigate, PAGES, SECTIONS, useRoute, type Page, type Section } 
 const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element> = {
   home: Home,
   events: Events,
+  effectiveness: Effectiveness,
   account: Account,
   orgs: Orgs,
   policy: Policy,

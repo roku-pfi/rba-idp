@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 
-export type Page = "home" | "events" | "policy" | "users" | "apps" | "groups" | "roles" | "orgs" | "account";
+export type Page = "home" | "events" | "effectiveness" | "policy" | "users" | "apps" | "groups" | "roles" | "orgs" | "account";
 
 /** The side navigation's sections, grouped by what the operator is doing. */
 export type Section = "activity" | "directory" | "access" | "platform";
@@ -21,6 +21,7 @@ export const SECTIONS: { id: Section; label: string }[] = [
 export const PAGES: { id: Page; slug: string; label: string; section: Section | null }[] = [
   { id: "home", slug: "resumen", label: "Resumen", section: "activity" },
   { id: "events", slug: "eventos", label: "Eventos", section: "activity" },
+  { id: "effectiveness", slug: "efectividad", label: "Efectividad", section: "activity" },
   { id: "users", slug: "usuarios", label: "Usuarios", section: "directory" },
   { id: "groups", slug: "grupos", label: "Grupos", section: "directory" },
   { id: "roles", slug: "roles", label: "Roles", section: "directory" },

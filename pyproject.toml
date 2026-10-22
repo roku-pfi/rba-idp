@@ -41,6 +41,7 @@ rba_idp = [
   # The self-hosted woff2 files; "web/static/*" does not reach into it.
   "web/static/fonts/*",
   "web/static/brand/*",
+  "data/*.json",
   "web/admin/*",
   "web/admin/assets/*",
 ]

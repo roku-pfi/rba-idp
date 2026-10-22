@@ -308,6 +308,52 @@ body {
 .rk-session { margin-bottom: 1rem; }
 .rk-account-page .cds--structured-list { margin-bottom: 0; }
 
+// ---------------------------------------------------------------- effectiveness
+.rk-eff-card { margin-bottom: 1rem; }
+.rk-eff-table { display: flex; flex-direction: column; }
+.rk-eff-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 6rem;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01);
+  @include type-style('body-compact-01');
+  &.is-current { background: var(--cds-layer-02); box-shadow: inset 2px 0 0 var(--cds-interactive); }
+  @media (max-width: 52rem) { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+}
+.rk-eff-head { @include type-style('label-01'); color: var(--cds-text-secondary); padding-top: 0; }
+.rk-eff-name { display: flex; align-items: center; gap: 0.5rem; .cds--tag { margin: 0; } }
+.rk-eff-foot { margin: 0.75rem 0 0; }
+.rk-num { font-variant-numeric: tabular-nums; }
+
+.rk-ratebar { display: flex; align-items: center; gap: 0.75rem; }
+.rk-ratebar-track { position: relative; flex: 1; height: 0.625rem; background: var(--cds-layer-accent-01); }
+.rk-ratebar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; }
+// The 95 % interval: a thin line over the bar, never a second colour.
+.rk-ratebar-ci { position: absolute; top: 50%; height: 2px; margin-top: -1px; background: var(--cds-text-primary); opacity: 0.85; }
+.rk-ratebar-ci::before, .rk-ratebar-ci::after { content: ""; position: absolute; top: -4px; width: 2px; height: 10px; background: inherit; }
+.rk-ratebar-ci::before { left: 0; }
+.rk-ratebar-ci::after { right: 0; }
+.rk-ratebar-value { width: 3rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.rk-key-line { display: inline-block; width: 1rem; height: 2px; }
+.rk-sweep svg { display: block; overflow: visible; }
+.rk-current { stroke: var(--cds-text-secondary); stroke-width: 1; }
+.rk-crosshair { stroke: var(--cds-text-primary); stroke-width: 1; opacity: 0.6; }
+.rk-dot { stroke: var(--cds-layer-01); stroke-width: 2; }
+.rk-sweep .rk-tooltip { transform: translateX(-50%); }
+
+.rk-depth {
+  th { text-align: left; @include type-style('label-01'); color: var(--cds-text-secondary); padding-bottom: 0.5rem; }
+  td:nth-child(2) { width: 55%; }
+  td.rk-num { padding-left: 1.25rem; text-align: right; white-space: nowrap; }
+  .rk-depth-bar { display: flex; align-items: center; gap: 0.5rem; }
+  .rk-depth-track { flex: 1; height: 0.5rem; }
+  .rk-depth-track span { display: block; height: 100%; border-radius: 0 2px 2px 0; }
+  .rk-depth-bar em { width: 3rem; font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--cds-text-secondary); }
+}
+
 // ---------------------------------------------------------------- policy
 .rk-actions { display: flex; align-items: center; gap: 0.5rem; }
 
