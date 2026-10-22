@@ -27,7 +27,7 @@ import { Add, CheckmarkFilled, CircleDash, WarningAltFilled } from "@carbon/icon
 import { FormEvent, useMemo, useState } from "react";
 import { api, type AdminUser } from "../api";
 import { useConsole } from "../console";
-import { Avatar, hash, TAG_TYPES } from "../components";
+import { Avatar, hash, Hint, PageHead, TAG_TYPES } from "../components";
 import { fmt } from "../i18n";
 import { useLoad } from "./load";
 
@@ -84,12 +84,9 @@ function Passkey({ count }: { count: number }) {
     );
   }
   return (
-    <span className="rk-cell-text">
-      <span className="rk-status rk-status--warn">
-        <WarningAltFilled size={16} />
-        Sin passkey
-      </span>
-      <span className="rk-secondary">No puede completar una verificación</span>
+    <span className="rk-status rk-status--warn">
+      <WarningAltFilled size={16} />
+      <Hint text="Si el motor le pide confirmar su identidad, no va a poder. Generale un código de activación.">Sin passkey</Hint>
     </span>
   );
 }
@@ -180,15 +177,10 @@ export function Users() {
 
   return (
     <>
-      <div className="rk-page-head">
-        <div>
-          <h1>Usuarios</h1>
-          <p>
-            Las personas de esta organización que pueden iniciar sesión. Lo que cada una puede hacer
-            depende de sus grupos.
-          </p>
-        </div>
-      </div>
+      <PageHead
+        title="Usuarios"
+        info="Las personas de esta organización que pueden iniciar sesión. Lo que cada una puede hacer depende de sus grupos."
+      />
 
       <DataTable rows={rows} headers={HEADERS} isSortable>
         {({ rows: tableRows, headers, getHeaderProps, getRowProps, getTableProps, getTableContainerProps }) => (

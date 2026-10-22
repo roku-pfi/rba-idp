@@ -136,8 +136,23 @@ body {
   margin-bottom: 1.5rem;
 
   h1 { @include type-style('heading-04'); margin: 0; }
+  .rk-title { display: flex; align-items: center; gap: 0.5rem; }
   p { @include type-style('body-01'); color: var(--cds-text-secondary); margin: 0.5rem 0 0; max-width: 64ch; }
 }
+
+.rk-info {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: help;
+  svg { fill: var(--cds-icon-secondary); }
+  &:hover svg, &:focus-visible svg { fill: var(--cds-icon-primary); }
+}
+.rk-info-tip .cds--popover-content { max-width: 22rem; }
 
 // ---------------------------------------------------------------- table cells
 // Two lines, everywhere: what it is, then the detail that tells it apart.
@@ -178,14 +193,16 @@ body {
 .rk-tags { display: flex; flex-wrap: wrap; align-items: center; }
 
 // ---------------------------------------------------------------- home
-// The summary sentence: the period's numbers in words, the lead of the page.
-.rk-lead {
-  @include type-style('body-02');
-  max-width: 72ch;
+// The week in four figures: label on top (meaning on hover), number below.
+.rk-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 3rem;
   margin: 0 0 1.5rem;
-  color: var(--cds-text-secondary);
-  strong { color: var(--cds-text-primary); font-weight: 600; }
+  dt { @include type-style('label-01'); color: var(--cds-text-secondary); }
+  dd { @include type-style('heading-05'); margin: 0.25rem 0 0; }
 }
+.rk-metrics-note { margin: 0 0 1.5rem; }
 
 .rk-home {
   display: grid;
@@ -289,6 +306,7 @@ body {
 }
 
 .rk-account-page { margin-bottom: 1rem; max-width: 48rem; }
+.rk-session { margin-bottom: 1rem; }
 .rk-account-page .cds--structured-list { margin-bottom: 0; }
 
 // ---------------------------------------------------------------- decisions

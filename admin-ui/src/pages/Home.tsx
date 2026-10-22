@@ -2,7 +2,7 @@ import { ClickableTile, InlineLoading, Link } from "@carbon/react";
 import { ArrowRight, CheckmarkFilled, CircleDash, View, WarningAltFilled } from "@carbon/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AdminUser, type Application, type Decision } from "../api";
-import { Avatar, TwoLines } from "../components";
+import { Avatar, Hint, PageHead, TwoLines } from "../components";
 import { useConsole } from "../console";
 import { countryName, fmt, label, OUTCOME_LABEL } from "../i18n";
 import { hrefOf, navigate } from "../router";
@@ -233,27 +233,43 @@ export function Home() {
 
   return (
     <>
-      <div className="rk-page-head">
-        <div>
-          <h1>Resumen</h1>
-          <p>{tenant?.name ?? "Tu organización"} · últimos 7 días</p>
-        </div>
-      </div>
+      <PageHead
+        title="Resumen"
+        sub={`${tenant?.name ?? "Tu organización"} · últimos 7 días`}
+        info="Lo que pasó en los inicios de sesión de tu organización esta semana y el estado de la protección."
+      />
 
       {items === null ? (
-        <p className="rk-lead">No pudimos leer los eventos ahora. El resto del resumen sigue disponible.</p>
+        <p className="rk-secondary rk-metrics-note">Eventos no disponibles.</p>
       ) : loading && total === 0 ? (
         <InlineLoading description="Cargando eventos…" />
-      ) : total === 0 ? (
-        <p className="rk-lead">Todavía no hubo inicios de sesión en estos 7 días.</p>
       ) : (
-        // One sentence instead of a row of stat cards: the numbers in context.
-        <p className="rk-lead">
-          Hubo <strong>{fmt.count(total)}</strong> inicios de sesión. El{" "}
-          <strong>{Math.round((count("ALLOW") / total) * 100)} %</strong> entró sin pasos extra,{" "}
-          <strong>{fmt.count(count("REQUIRE_MFA") + count("REAUTHENTICATE"))}</strong> tuvieron que confirmar
-          su identidad y <strong>{fmt.count(count("BLOCK"))}</strong> se bloquearon.
-        </p>
+        <dl className="rk-metrics">
+          <div>
+            <dt>
+              <Hint text="Inicios de sesión evaluados por el motor en los últimos 7 días.">Inicios</Hint>
+            </dt>
+            <dd>{fmt.count(total)}</dd>
+          </div>
+          <div>
+            <dt>
+              <Hint text="Entraron solo con la contraseña: el motor los reconoció como habituales.">Sin pasos extra</Hint>
+            </dt>
+            <dd>{total ? `${Math.round((count("ALLOW") / total) * 100)} %` : "—"}</dd>
+          </div>
+          <div>
+            <dt>
+              <Hint text="Se les pidió la passkey o volver a autenticarse.">Verificados</Hint>
+            </dt>
+            <dd>{fmt.count(count("REQUIRE_MFA") + count("REAUTHENTICATE"))}</dd>
+          </div>
+          <div>
+            <dt>
+              <Hint text="El motor no los dejó entrar.">Bloqueados</Hint>
+            </dt>
+            <dd>{fmt.count(count("BLOCK"))}</dd>
+          </div>
+        </dl>
       )}
 
       <div className="rk-home">
@@ -268,11 +284,10 @@ export function Home() {
             <>
               <div className={`rk-state rk-state--${engine.tone}`}>
                 <engine.icon size={24} />
-                <span>{engine.title}</span>
+                <Hint text={engine.text}>{engine.title}</Hint>
               </div>
-              <p className="rk-card-text">{engine.text}</p>
               <p className="rk-secondary">
-                Política base: {BASE_POLICY[policy.base_policy] ?? policy.base_policy} · versión {policy.policy_version}
+                <Hint text="Lo que rige si el motor está apagado.">Base</Hint>: {BASE_POLICY[policy.base_policy] ?? policy.base_policy} · v{policy.policy_version}
               </p>
             </>
           ) : (
@@ -285,13 +300,16 @@ export function Home() {
           <h2 className="rk-card-title rk-card-title--gap">Passkeys</h2>
           <div className={`rk-state rk-state--${noPasskey ? "warn" : "ok"}`}>
             {noPasskey ? <WarningAltFilled size={24} /> : <CheckmarkFilled size={24} />}
-            <span>{noPasskey ? `${noPasskey} sin passkey` : "Todos tienen"}</span>
+            <Hint
+              text={
+                noPasskey
+                  ? "Si el motor les pide confirmar su identidad, no van a poder. Generales un código de activación."
+                  : "Cualquier usuario puede completar una verificación."
+              }
+            >
+              {noPasskey ? `${noPasskey} sin passkey` : "Todos tienen"}
+            </Hint>
           </div>
-          <p className="rk-card-text">
-            {noPasskey
-              ? "Si el motor les pide confirmar su identidad, no van a poder. Generales un código de activación."
-              : "Cualquier usuario puede completar una verificación."}
-          </p>
           <Link href={hrefOf("users")} onClick={go("users")} renderIcon={ArrowRight} className="rk-card-link">
             Ver usuarios
           </Link>
@@ -300,7 +318,7 @@ export function Home() {
         <section className="rk-card rk-card--wide">
           <h2 className="rk-card-title">Requirieron atención</h2>
           {attention.length === 0 ? (
-            <p className="rk-secondary">Ningún inicio necesitó pasos extra en estos 7 días.</p>
+            <p className="rk-secondary">Ninguno.</p>
           ) : (
             <ul className="rk-attention">
               {attention.map((item) => (
@@ -331,7 +349,7 @@ export function Home() {
         <section className="rk-card">
           <h2 className="rk-card-title">Desde dónde</h2>
           {countries.length === 0 ? (
-            <p className="rk-secondary">Sin inicios en estos 7 días.</p>
+            <p className="rk-secondary">Sin datos.</p>
           ) : (
             <table className="rk-share">
               <tbody>

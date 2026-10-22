@@ -43,7 +43,7 @@ import {
 } from "@carbon/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, type AdminUser, type Application, type Decision } from "../api";
-import { Avatar, TwoLines } from "../components";
+import { Avatar, Hint, PageHead, TwoLines } from "../components";
 import { useConsole } from "../console";
 import { countryName, DEVICE_LABEL, fmt, label, LEVEL_LABEL, MODE_LABEL, OUTCOME_LABEL, reasonDetail, reasonText } from "../i18n";
 import { hrefOf, navigate } from "../router";
@@ -191,7 +191,7 @@ export function Explanation({ item }: { item: Decision }) {
       <section>
         <h3 className="rk-section-title">Por qué</h3>
         {reasons.length === 0 ? (
-          <p className="rk-secondary">El motor no dio motivos para este inicio.</p>
+          <p className="rk-secondary">Sin motivos.</p>
         ) : (
           <ul className="rk-reasons">
             {reasons.map((reason, index) => {
@@ -204,10 +204,11 @@ export function Explanation({ item }: { item: Decision }) {
                 <li key={index} title={title}>
                   <Icon size={16} className={raises ? "rk-raises" : "rk-lowers"} />
                   <span className="rk-reason-text">
-                    {text}
                     {rule && reasonDetail(reason.code, reason.detail) ? (
-                      <span className="rk-secondary">{reasonDetail(reason.code, reason.detail)}</span>
-                    ) : null}
+                      <Hint text={reasonDetail(reason.code, reason.detail)}>{text}</Hint>
+                    ) : (
+                      text
+                    )}
                   </span>
                   {!rule && (
                     <span className="rk-weight" aria-hidden="true">
@@ -227,7 +228,7 @@ export function Explanation({ item }: { item: Decision }) {
       <section>
         <h3 className="rk-section-title">El inicio de sesión</h3>
         {signals.length === 0 ? (
-          <p className="rk-secondary">Este registro es anterior a que se guardara el contexto del inicio.</p>
+          <p className="rk-secondary">Sin datos del inicio.</p>
         ) : (
           <StructuredListWrapper isCondensed className="rk-signals" aria-label="Señales del inicio">
             <StructuredListBody>
@@ -390,13 +391,12 @@ export function Events({ itemId }: { itemId: string | null }) {
 
   return (
     <>
-      <div className="rk-page-head">
-        <div>
-          <h1>Eventos</h1>
-          <p>Cada inicio de sesión que evaluó el motor: de dónde vino, qué tan riesgoso era y qué se hizo. Abrí una fila para ver por qué.</p>
-        </div>
+      <PageHead
+        title="Eventos"
+        info="Cada inicio de sesión que evaluó el motor: de dónde vino, qué tan riesgoso era y qué se hizo. Abrí una fila para ver por qué."
+      >
         <div className="rk-refresh">
-          <span className="rk-secondary">Actualizado {fmt.time(updated.toISOString())}</span>
+          <span className="rk-secondary">{fmt.time(updated.toISOString())}</span>
           <IconButton
             kind="ghost"
             size="sm"
@@ -406,7 +406,7 @@ export function Events({ itemId }: { itemId: string | null }) {
             <Renew />
           </IconButton>
         </div>
-      </div>
+      </PageHead>
 
       {loading && items.length === 0 ? (
         <DataTableSkeleton headers={HEADERS} columnCount={HEADERS.length + 1} rowCount={8} showHeader={false} />
@@ -517,7 +517,7 @@ export function Events({ itemId }: { itemId: string | null }) {
                               navigate("events", item.event_id);
                             }}
                           >
-                            Abrir en su propia página
+                            Abrir
                           </Link>
                         </TableExpandedRow>
                       ) : null,

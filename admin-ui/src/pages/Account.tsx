@@ -1,6 +1,7 @@
 import { Button, StructuredListBody, StructuredListCell, StructuredListRow, StructuredListWrapper, Tag } from "@carbon/react";
 import { logout } from "../api";
-import { Avatar } from "../components";
+import { Information } from "@carbon/icons-react";
+import { Avatar, Hint, PageHead } from "../components";
 import { useConsole } from "../console";
 import { fmt } from "../i18n";
 
@@ -24,24 +25,19 @@ export function Account() {
   const { user, tenant, permissions, expiresAt } = useConsole();
   return (
     <>
-      <div className="rk-page-head">
-        <div className="rk-cell">
-          <Avatar email={user.email} />
-          <div>
-            <h1>Mi cuenta</h1>
-            <p>
-              {user.email} · {tenant?.name ?? user.tenant_id}
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHead
+        title="Mi cuenta"
+        sub={`${user.email} · ${tenant?.name ?? user.tenant_id} · ${standing(permissions)}`}
+        lead={<Avatar email={user.email} />}
+      />
 
       <section className="rk-card rk-account-page">
-        <h2 className="rk-card-title">Lo que podés hacer en esta consola</h2>
-        <p className="rk-card-text">
-          Como <strong>{standing(permissions).toLowerCase()}</strong>, tu sesión tiene estos permisos. Vienen de
-          los roles de tus grupos; si te falta alguno, pedíselo a un administrador.
-        </p>
+        <h2 className="rk-card-title rk-title">
+          Permisos
+          <Hint text="Vienen de los roles de tus grupos. Si te falta alguno, pedíselo a un administrador.">
+            <Information size={16} />
+          </Hint>
+        </h2>
         <StructuredListWrapper isCondensed aria-label="Permisos de esta sesión">
           <StructuredListBody>
             {permissions.map((scope) => (
@@ -60,9 +56,10 @@ export function Account() {
 
       <section className="rk-card rk-account-page">
         <h2 className="rk-card-title">Sesión</h2>
-        <p className="rk-card-text">
-          {expiresAt ? `Tu sesión vence ${fmt.ago(expiresAt)} (${fmt.dateTime(expiresAt)}).` : "Sesión activa."}
-        </p>
+        <dl className="rk-defs rk-session">
+          <dt>Vence</dt>
+          <dd>{expiresAt ? `${fmt.ago(expiresAt)} · ${fmt.dateTime(expiresAt)}` : "—"}</dd>
+        </dl>
         <Button kind="secondary" size="md" onClick={() => void logout()}>
           Cerrar sesión
         </Button>
