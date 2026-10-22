@@ -147,7 +147,13 @@ export default function App() {
     <div className="admin-shell">
       <header className="admin-top">
         <div className="brand">
-          <p className="brand-mark">RokuSec</p>
+          <img
+            className="brand-logo"
+            src="/static/brand/rokusec-logo-horizontal-inverse.svg"
+            alt="RokuSec"
+            width={77}
+            height={34}
+          />
           <p className="brand-sub">{tenant ? tenant.name : "Consola"}</p>
         </div>
         {tenants.length > 0 && (

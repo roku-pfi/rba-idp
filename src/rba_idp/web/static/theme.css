@@ -4,6 +4,9 @@
    operator's: the admin console. Both draw from the same tokens, so a severity
    colour means the same thing wherever it appears.
 
+   The accent is the logo's blue (docs/brand/README.md, ADR-0036): blue-600
+   on light, the inverse logo's blue on dark.
+
    Severity never uses red or orange. It escalates by moving away from green —
    green, cyan, indigo, plum — which separates on lightness as well as hue. That
    survives greyscale printing and red-green colour vision deficiency, which
@@ -69,22 +72,22 @@
 
 :root {
   /* surfaces */
-  --ground: #F3F5FB;
+  --ground: #F3F6FB;
   --surface: #FFFFFF;
-  --sunk: #EDF0F8;
-  --line: #DDE3F0;
-  --line-soft: #E9EDF6;
-  --glow: radial-gradient(1100px 460px at 10% -10%, #E4E9FA 0%, transparent 58%);
+  --sunk: #EDF1F8;
+  --line: #DCE3EF;
+  --line-soft: #E8EDF5;
+  --glow: radial-gradient(1100px 460px at 10% -10%, #E1EDFD 0%, transparent 58%);
 
   /* text */
-  --ink: #141824;
+  --ink: #121A2C;
   --muted: #59627A;
   --faint: #8A93A8;
 
   /* the one interactive colour */
-  --accent: #4C5FE0;
-  --accent-hover: #3B4CC4;
-  --accent-soft: #E9ECFD;
+  --accent: #1466E5;
+  --accent-hover: #1150B0;
+  --accent-soft: #E3EEFD;
   --on-accent: #FFFFFF;
 
   /* severity: ALLOW/LOW, REQUIRE_MFA/MEDIUM, REAUTHENTICATE/HIGH, BLOCK/CRITICAL */
@@ -109,15 +112,15 @@
   --sunk: #1C2230;
   --line: #28303F;
   --line-soft: #1F2633;
-  --glow: radial-gradient(900px 420px at 12% -10%, #17203A 0%, transparent 62%);
+  --glow: radial-gradient(900px 420px at 12% -10%, #12213B 0%, transparent 62%);
 
   --ink: #E3E8F2;
   --muted: #858FA6;
   --faint: #5D6679;
 
-  --accent: #8FA4FF;
-  --accent-hover: #A6B6FF;
-  --accent-soft: #1B2440;
+  --accent: #4C9BFF;
+  --accent-hover: #6CB4FF;
+  --accent-soft: #12223D;
   --on-accent: #0D1017;
 
   --sev-1: #63C48E;  --sev-1-bg: #16281F;
@@ -133,7 +136,7 @@
 * { box-sizing: border-box; }
 
 /* Severity is always an outlined mono pill; an action you can take is always a
-   solid filled control. Different shape, so indigo can safely do both jobs. */
+   solid filled control. Different shape, so the accent never reads as a severity. */
 .badge {
   display: inline-block;
   padding: 0.12rem 0.45rem;

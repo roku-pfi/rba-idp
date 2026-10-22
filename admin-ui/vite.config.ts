@@ -16,6 +16,7 @@ export default defineConfig({
       "/logout": "http://localhost:8001",
       "/mfa": "http://localhost:8001",
       "/admin/api": "http://localhost:8001",
+      "/static": "http://localhost:8001",
     },
   },
 });

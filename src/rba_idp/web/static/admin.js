@@ -539,7 +539,7 @@
       el("div", { class: "admin-shell" },
         el("header", { class: "admin-top" },
           el("div", {},
-            el("p", { class: "brand-mark" }, "RBA Identity"),
+            el("img", { class: "brand-logo", src: "/static/brand/rokusec-logo-horizontal-inverse.svg", alt: "RokuSec" }),
             el("p", { class: "brand-sub" }, "Admin console"),
           ),
           el("div", { class: "who" },

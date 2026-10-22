@@ -61,7 +61,7 @@ def test_admin_page(client: TestClient) -> None:
     resp = client.get("/admin")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "RBA Admin" in resp.text
+    assert "Consola · RokuSec" in resp.text
     assert "/static/admin.js" in resp.text or 'id="root"' in resp.text
 
 

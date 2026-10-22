@@ -97,7 +97,8 @@ ADMIN_INDEX_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RBA Admin</title>
+  <title>Consola · RokuSec</title>
+  <link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/theme.css">
   <link rel="stylesheet" href="/static/admin.css">
 </head>
