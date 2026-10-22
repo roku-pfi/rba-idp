@@ -53,6 +53,20 @@
         <p class="back"><a href="#" id="denied-restart">Try again</a></p>
       </section>
 
+      <section id="panel-nofactor" hidden>
+        <h1>We couldn’t verify it’s you</h1>
+        <p class="lede">This sign-in needs a passkey, and your account doesn’t have one yet. Contact support for an activation code.</p>
+        <p class="back"><a href="/activate">I have an activation code</a> · <a href="#" id="nofactor-restart">Back</a></p>
+      </section>
+
+      <section id="panel-offer" hidden>
+        <h1>Add a passkey</h1>
+        <p class="lede">Next time a sign-in looks unusual, you’ll confirm it with this device instead of being locked out.</p>
+        <p class="form-error" id="offer-error" hidden></p>
+        <button type="button" id="offer-add">Add passkey</button>
+        <p class="back"><a href="#" id="offer-skip">Not now</a></p>
+      </section>
+
       <section id="panel-session" hidden>
         <h1>Signed in</h1>
         <p class="lede" id="session-lede"></p>
@@ -73,6 +87,7 @@
   </div>
 
   <script type="application/json" id="boot">{{ boot | tojson }}</script>
+  <script src="/static/passkey.js"></script>
   <script src="/static/login.js"></script>
 </body>
 </html>

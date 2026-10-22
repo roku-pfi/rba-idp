@@ -9,6 +9,8 @@
     blocked: document.getElementById("panel-blocked"),
     denied: document.getElementById("panel-denied"),
     session: document.getElementById("panel-session"),
+    nofactor: document.getElementById("panel-nofactor"),
+    offer: document.getElementById("panel-offer"),
     unavailable: document.getElementById("panel-unavailable"),
   };
 
@@ -88,6 +90,11 @@
       show("blocked");
       return;
     }
+    if (outcome === "SECOND_FACTOR_MISSING") {
+      // ADR-0037: a step-up never becomes an enrollment.
+      show("nofactor");
+      return;
+    }
     if (outcome === "MFA_REQUIRED" || outcome === "REAUTH_REQUIRED") {
       document.getElementById("challenge-title").textContent = "Confirm it’s you";
       document.getElementById("challenge-lede").textContent =
@@ -99,19 +106,33 @@
     }
     if (outcome === "AUTHENTICATED" && body.session?.token) {
       storeSession(body.session.token);
-      if (body.redirect_to) {
-        window.location.assign(body.redirect_to);
+      if (body.passkey_offer && window.PublicKeyCredential) {
+        // A usual-context login of a user with no passkey: the one moment
+        // (besides an activation code) a passkey may be added.
+        pendingLogin = body;
+        setError("offer-error", "");
+        show("offer");
         return;
       }
-      if (boot.next && boot.next.startsWith("/admin")) {
-        window.location.assign(boot.next);
-        return;
-      }
-      showSignedIn(body);
+      continueAfterLogin(body);
       return;
     }
     setError("login-error", body.detail || "Unexpected response from the IdP.");
     show("credentials");
+  }
+
+  let pendingLogin = null;
+
+  function continueAfterLogin(body) {
+    if (body.redirect_to) {
+      window.location.assign(body.redirect_to);
+      return;
+    }
+    if (boot.next && boot.next.startsWith("/admin")) {
+      window.location.assign(boot.next);
+      return;
+    }
+    showSignedIn(body);
   }
 
   function showSignedIn(body, session) {
@@ -163,6 +184,52 @@
   document.getElementById("blocked-restart").addEventListener("click", restart);
   document.getElementById("denied-restart").addEventListener("click", restart);
   document.getElementById("unavailable-restart").addEventListener("click", restart);
+  document.getElementById("nofactor-restart").addEventListener("click", restart);
+
+  document.getElementById("offer-skip").addEventListener("click", (event) => {
+    event.preventDefault();
+    if (pendingLogin) continueAfterLogin(pendingLogin);
+  });
+
+  document.getElementById("offer-add").addEventListener("click", async () => {
+    const button = document.getElementById("offer-add");
+    button.disabled = true;
+    setError("offer-error", "");
+    try {
+      const optionsResp = await fetch("/passkeys/options", {
+        method: "POST",
+        headers: authHeader(),
+      });
+      if (optionsResp.status !== 200) {
+        // The window closed or a passkey exists now; nothing to add.
+        continueAfterLogin(pendingLogin);
+        return;
+      }
+      const options = await parseJson(optionsResp);
+      const cred = await navigator.credentials.create({
+        publicKey: publicKeyFromJson(options.public_key),
+      });
+      const resp = await fetch("/passkeys/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeader() },
+        body: JSON.stringify({ credential: credentialToJson(cred) }),
+      });
+      if (resp.status !== 204) {
+        setError("offer-error", "Couldn't save the passkey. You can continue without it.");
+        return;
+      }
+      continueAfterLogin(pendingLogin);
+    } catch (err) {
+      setError(
+        "offer-error",
+        err && err.name === "NotAllowedError"
+          ? "Cancelled. You can try again or continue without it."
+          : "Couldn't save the passkey. You can continue without it."
+      );
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   if (boot.unknown_application) {
     show("unknown");
@@ -176,71 +243,7 @@
   document.getElementById("credentials-lede").textContent =
     "This page is hosted by the IdP. The application never sees your password.";
 
-  function b64urlToBuf(value) {
-    const pad = "=".repeat((4 - (value.length % 4)) % 4);
-    const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/") + pad);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return bytes.buffer;
-  }
-
-  function bufToB64url(buf) {
-    const bytes = new Uint8Array(buf);
-    let binary = "";
-    bytes.forEach((b) => {
-      binary += String.fromCharCode(b);
-    });
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  }
-
-  function publicKeyFromJson(options) {
-    const pk = { ...options, challenge: b64urlToBuf(options.challenge) };
-    if (options.user) {
-      pk.user = { ...options.user, id: b64urlToBuf(options.user.id) };
-    }
-    if (options.excludeCredentials) {
-      pk.excludeCredentials = options.excludeCredentials.map((item) => ({
-        ...item,
-        id: b64urlToBuf(item.id),
-      }));
-    }
-    if (options.allowCredentials) {
-      pk.allowCredentials = options.allowCredentials.map((item) => ({
-        ...item,
-        id: b64urlToBuf(item.id),
-      }));
-    }
-    return pk;
-  }
-
-  function credentialToJson(cred) {
-    const response = cred.response;
-    const payload = {
-      id: cred.id,
-      rawId: bufToB64url(cred.rawId),
-      type: cred.type,
-      response: {
-        clientDataJSON: bufToB64url(response.clientDataJSON),
-      },
-    };
-    if (cred.authenticatorAttachment) {
-      payload.authenticatorAttachment = cred.authenticatorAttachment;
-    }
-    if (response.attestationObject) {
-      payload.response.attestationObject = bufToB64url(response.attestationObject);
-      if (typeof response.getTransports === "function") {
-        payload.response.transports = response.getTransports();
-      }
-    }
-    if (response.authenticatorData) {
-      payload.response.authenticatorData = bufToB64url(response.authenticatorData);
-      payload.response.signature = bufToB64url(response.signature);
-      if (response.userHandle) {
-        payload.response.userHandle = bufToB64url(response.userHandle);
-      }
-    }
-    return payload;
-  }
+  const { publicKeyFromJson, credentialToJson } = window.RbaPasskey;
 
   document.getElementById("form-login").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -300,10 +303,7 @@
         return;
       }
       const publicKey = publicKeyFromJson(optionsBody.public_key);
-      const cred =
-        optionsBody.mode === "create"
-          ? await navigator.credentials.create({ publicKey })
-          : await navigator.credentials.get({ publicKey });
+      const cred = await navigator.credentials.get({ publicKey });
       if (!cred) {
         setError("mfa-error", "Confirmation was cancelled.");
         return;

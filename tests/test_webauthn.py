@@ -1,4 +1,4 @@
-"""Demo-4: WebAuthn passkey for REQUIRE_MFA. Mock OTP stays on /mfa/verify."""
+"""WebAuthn passkey for step-ups. Enrollment itself is in test_enrollment.py."""
 
 from __future__ import annotations
 
@@ -108,25 +108,44 @@ class SoftPasskey:
         }
 
 
-def test_webauthn_create_issues_session_without_rescoring() -> None:
+def enroll_after_usual_login(client: TestClient, pdp: StubPdp, passkey: SoftPasskey) -> None:
+    """ADR-0037 door 1: a login the engine judged usual may add a passkey."""
+    saved = (pdp.action, pdp.risk_score, pdp.risk_level)
+    pdp.action, pdp.risk_score, pdp.risk_level = Action.ALLOW, 0.1, RiskLevel.LOW
+    body = client.post("/login", json=LOGIN).json()
+    assert body["passkey_offer"] is True, body
+    auth = {"Authorization": f"Bearer {body['session']['token']}"}
+    opts = client.post("/passkeys/options", headers=auth).json()
+    assert opts["public_key"]["rp"]["id"] == RP_ID
+    done = client.post(
+        "/passkeys/verify",
+        headers=auth,
+        json={"credential": passkey.create(opts["public_key"]["challenge"])},
+    )
+    assert done.status_code == 204, done.text
+    client.post("/logout", headers=auth)
+    pdp.action, pdp.risk_score, pdp.risk_level = saved
+
+
+def test_step_up_with_an_enrolled_passkey_issues_session_without_rescoring() -> None:
     pdp = StubPdp(
         action=Action.REQUIRE_MFA, risk_score=0.61, risk_level=RiskLevel.MEDIUM
     )
     passkey = SoftPasskey()
     with client_for(pdp) as client:
+        enroll_after_usual_login(client, pdp, passkey)
+        calls_before = len(pdp.calls)
         challenge_id = client.post("/login", json=LOGIN).json()["challenge_id"]
         opts = client.post(
             "/mfa/webauthn/options", json={"challenge_id": challenge_id}
         ).json()
-        assert opts["mode"] == "create"
-        assert opts["public_key"]["rp"]["id"] == RP_ID
-        assert len(pdp.calls) == 1
+        assert opts["mode"] == "get"
 
         resp = client.post(
             "/mfa/webauthn/verify",
             json={
                 "challenge_id": challenge_id,
-                "credential": passkey.create(opts["public_key"]["challenge"]),
+                "credential": passkey.get(opts["public_key"]["challenge"]),
             },
         )
         assert resp.status_code == 200
@@ -139,47 +158,22 @@ def test_webauthn_create_issues_session_without_rescoring() -> None:
         assert client.get(
             "/session", headers={"Authorization": f"Bearer {token}"}
         ).status_code == 200
-        assert len(pdp.calls) == 1
+        # One score for the login; completing the step-up does not re-score.
+        assert len(pdp.calls) == calls_before + 1
 
 
-def test_webauthn_get_uses_stored_passkey() -> None:
-    pdp = StubPdp(
-        action=Action.REQUIRE_MFA, risk_score=0.61, risk_level=RiskLevel.MEDIUM
-    )
-    passkey = SoftPasskey()
+def test_another_users_passkey_does_not_pass_the_step_up() -> None:
+    pdp = StubPdp(action=Action.REQUIRE_MFA, risk_score=0.61, risk_level=RiskLevel.MEDIUM)
+    mine, theirs = SoftPasskey(), SoftPasskey()
     with client_for(pdp) as client:
-        first = client.post("/login", json=LOGIN).json()["challenge_id"]
-        create_opts = client.post(
-            "/mfa/webauthn/options", json={"challenge_id": first}
-        ).json()
-        created = client.post(
-            "/mfa/webauthn/verify",
-            json={
-                "challenge_id": first,
-                "credential": passkey.create(create_opts["public_key"]["challenge"]),
-            },
-        )
-        assert created.status_code == 200
-        client.post(
-            "/logout",
-            headers={"Authorization": f"Bearer {created.json()['session']['token']}"},
-        )
-
-        second = client.post("/login", json=LOGIN).json()["challenge_id"]
-        get_opts = client.post(
-            "/mfa/webauthn/options", json={"challenge_id": second}
-        ).json()
-        assert get_opts["mode"] == "get"
+        enroll_after_usual_login(client, pdp, mine)
+        challenge_id = client.post("/login", json=LOGIN).json()["challenge_id"]
+        opts = client.post("/mfa/webauthn/options", json={"challenge_id": challenge_id}).json()
         resp = client.post(
             "/mfa/webauthn/verify",
-            json={
-                "challenge_id": second,
-                "credential": passkey.get(get_opts["public_key"]["challenge"]),
-            },
+            json={"challenge_id": challenge_id, "credential": theirs.get(opts["public_key"]["challenge"])},
         )
-        assert resp.status_code == 200
-        assert resp.json()["outcome"] == LoginOutcome.AUTHENTICATED.value
-        assert len(pdp.calls) == 2
+        assert resp.json() == {"outcome": LoginOutcome.INVALID_CREDENTIALS.value}
 
 
 def test_webauthn_bad_assertion_keeps_challenge_open() -> None:
@@ -187,6 +181,8 @@ def test_webauthn_bad_assertion_keeps_challenge_open() -> None:
         action=Action.REQUIRE_MFA, risk_score=0.61, risk_level=RiskLevel.MEDIUM
     )
     with client_for(pdp) as client:
+        enroll_after_usual_login(client, pdp, SoftPasskey())
+        calls_before = len(pdp.calls)
         challenge_id = client.post("/login", json=LOGIN).json()["challenge_id"]
         client.post("/mfa/webauthn/options", json={"challenge_id": challenge_id})
         bad = client.post(
@@ -213,7 +209,7 @@ def test_webauthn_bad_assertion_keeps_challenge_open() -> None:
         )
         assert retry.status_code == 200
         assert retry.json()["outcome"] == LoginOutcome.AUTHENTICATED.value
-        assert len(pdp.calls) == 1
+        assert len(pdp.calls) == calls_before + 1
 
 
 def test_webauthn_verify_without_options_is_400() -> None:

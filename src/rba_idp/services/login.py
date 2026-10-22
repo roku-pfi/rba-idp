@@ -44,7 +44,6 @@ from rba_contracts import (
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
-from webauthn.helpers import bytes_to_base64url
 from webauthn.helpers.exceptions import WebAuthnException
 
 from rba_idp.authz import effective_permissions, has_application_access
@@ -70,7 +69,7 @@ from rba_idp.tokens import (
     new_session_token,
     otp_matches,
 )
-from rba_idp.webauthn import creation_options, request_options, verify_create, verify_get
+from rba_idp.webauthn import request_options, verify_get
 
 
 logger = logging.getLogger(__name__)
@@ -398,6 +397,9 @@ class LoginService:
             logger.warning("failed-login report dropped for user_id=%s", user_id)
 
     def verify_mfa(self, body: MfaVerifyRequest) -> LoginResponse:
+        if not self._settings.mock_otp_enabled:
+            # A fixed code that passes any step-up must not exist in a deployment.
+            raise HTTPException(status_code=404, detail="not found")
         now = datetime.now(timezone.utc)
         with session_scope(self._session_factory) as session:
             challenge = self._open_challenge(session, body.challenge_id, now)
@@ -420,19 +422,13 @@ class LoginService:
                     )
                 )
             )
-            if cred_ids:
-                mode = WebAuthnCeremonyMode.GET
-                nonce, public_key = request_options(self._settings, cred_ids)
-            else:
-                user = session.get(User, challenge.user_id)
-                if user is None or not user.enabled:
-                    raise HTTPException(
-                        status_code=400, detail="unknown or expired challenge"
-                    )
-                mode = WebAuthnCeremonyMode.CREATE
-                nonce, public_key = creation_options(
-                    self._settings, user_id=user.user_id, email=user.email
-                )
+            if not cred_ids:
+                # ADR-0037: a step-up is never turned into an enrollment. The
+                # login path already refuses such challenges; this covers a
+                # passkey removed while the challenge was open.
+                raise HTTPException(status_code=400, detail="no passkey for this user")
+            mode = WebAuthnCeremonyMode.GET
+            nonce, public_key = request_options(self._settings, cred_ids)
             challenge.webauthn_challenge = nonce
             challenge.webauthn_mode = mode.value
             return MfaWebAuthnOptionsResponse(
@@ -449,40 +445,25 @@ class LoginService:
                 raise HTTPException(
                     status_code=400, detail="unknown or expired challenge"
                 )
+            if challenge.webauthn_mode != WebAuthnCeremonyMode.GET.value:
+                raise HTTPException(
+                    status_code=400, detail="unknown or expired challenge"
+                )
             try:
-                if challenge.webauthn_mode == WebAuthnCeremonyMode.CREATE.value:
-                    verified = verify_create(
-                        self._settings,
-                        credential=body.credential,
-                        expected_challenge=challenge.webauthn_challenge,
-                    )
-                    session.add(
-                        WebAuthnCredential(
-                            credential_id=bytes_to_base64url(verified.credential_id),
-                            user_id=challenge.user_id,
-                            public_key=verified.credential_public_key,
-                            sign_count=verified.sign_count,
-                        )
-                    )
-                else:
-                    cred_id = body.credential.get("id")
-                    if not isinstance(cred_id, str):
-                        return LoginResponse(
-                            outcome=LoginOutcome.INVALID_CREDENTIALS
-                        )
-                    stored = session.get(WebAuthnCredential, cred_id)
-                    if stored is None or stored.user_id != challenge.user_id:
-                        return LoginResponse(
-                            outcome=LoginOutcome.INVALID_CREDENTIALS
-                        )
-                    verified = verify_get(
-                        self._settings,
-                        credential=body.credential,
-                        expected_challenge=challenge.webauthn_challenge,
-                        public_key=stored.public_key,
-                        sign_count=stored.sign_count,
-                    )
-                    stored.sign_count = verified.new_sign_count
+                cred_id = body.credential.get("id")
+                if not isinstance(cred_id, str):
+                    return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+                stored = session.get(WebAuthnCredential, cred_id)
+                if stored is None or stored.user_id != challenge.user_id:
+                    return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
+                verified = verify_get(
+                    self._settings,
+                    credential=body.credential,
+                    expected_challenge=challenge.webauthn_challenge,
+                    public_key=stored.public_key,
+                    sign_count=stored.sign_count,
+                )
+                stored.sign_count = verified.new_sign_count
             except (WebAuthnException, ValueError, TypeError, KeyError):
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
             return self._finish_challenge(
@@ -556,14 +537,43 @@ class LoginService:
         session_token: SessionToken | None = None
         challenge_id: UUID | None = None
         redirect_to: str | None = None
+        passkey_offer = False
         if action == Action.ALLOW:
+            # ADR-0037: only a login the engine itself judged usual is a
+            # trusted context to enroll from — not a monitor-mode ALLOW of a
+            # risky verdict, not a fallback, not an engine that is off.
+            passkey_offer = (
+                decision is not None
+                and decision.action == Action.ALLOW
+                and not decision.fallback
+                and not self._has_passkey(user_id)
+            )
             session_token, redirect_to = self._create_session_with_callback(
                 user_id,
                 attempt.application_id,
                 requested_redirect=attempt.requested_redirect,
                 registered_redirect=attempt.registered_redirect,
+                may_enroll=passkey_offer,
             )
         elif action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE):
+            if not self._has_second_factor(user_id):
+                # ADR-0037: never an enrollment. The PDP has already recorded
+                # its verdict; the refusal is kept on the challenge row.
+                self._create_challenge(
+                    user_id, attempt.application_id, action, decision,
+                    denied_reason="no_second_factor",
+                )
+                logger.warning(
+                    "step-up denied: no_second_factor tenant_id=%s user_id=%s",
+                    attempt.tenant_id,
+                    user_id,
+                )
+                return LoginResponse(
+                    outcome=LoginOutcome.SECOND_FACTOR_MISSING,
+                    user_id=user_id,
+                    event_id=decision.event_id if decision is not None else None,
+                    action=action,
+                )
             challenge_id = self._create_challenge(
                 user_id, attempt.application_id, action, decision
             )
@@ -579,7 +589,23 @@ class LoginService:
             session=session_token,
             challenge_id=challenge_id,
             redirect_to=redirect_to,
+            passkey_offer=passkey_offer,
         )
+
+    def _has_passkey(self, user_id: str) -> bool:
+        with session_scope(self._session_factory) as session:
+            return (
+                session.scalar(
+                    select(WebAuthnCredential.credential_id)
+                    .where(WebAuthnCredential.user_id == user_id)
+                    .limit(1)
+                )
+                is not None
+            )
+
+    def _has_second_factor(self, user_id: str) -> bool:
+        """A passkey — or, in the test suite only, the mock OTP."""
+        return self._settings.mock_otp_enabled or self._has_passkey(user_id)
 
     def _create_session_with_callback(
         self,
@@ -588,10 +614,13 @@ class LoginService:
         *,
         requested_redirect: str | None,
         registered_redirect: str | None,
+        may_enroll: bool = False,
     ) -> tuple[SessionToken, str | None]:
         now = datetime.now(timezone.utc)
         with session_scope(self._session_factory) as session:
-            token = self._persist_session(session, user_id, application_id, now)
+            token = self._persist_session(
+                session, user_id, application_id, now, may_enroll=may_enroll
+            )
             redirect_to = self._persist_callback(
                 session,
                 user_id=user_id,
@@ -608,6 +637,8 @@ class LoginService:
         user_id: str,
         application_id: str,
         now: datetime,
+        *,
+        may_enroll: bool = False,
     ) -> SessionToken:
         raw = new_session_token()
         expires_at = now + timedelta(seconds=self._settings.session_ttl_seconds)
@@ -617,6 +648,9 @@ class LoginService:
                 user_id=user_id,
                 application_id=application_id,
                 expires_at=expires_at,
+                enroll_until=now + timedelta(seconds=self._settings.enroll_window_seconds)
+                if may_enroll
+                else None,
             )
         )
         return SessionToken(token=raw, expires_at=expires_at)
@@ -654,6 +688,8 @@ class LoginService:
         application_id: str,
         action: Action,
         decision: RiskEvaluateResponse | None,
+        *,
+        denied_reason: str | None = None,
     ) -> UUID:
         challenge_id = uuid4()
         now = datetime.now(timezone.utc)
@@ -672,6 +708,8 @@ class LoginService:
                     else [],
                     expires_at=now
                     + timedelta(seconds=self._settings.challenge_ttl_seconds),
+                    denied_reason=denied_reason,
+                    consumed_at=now if denied_reason else None,
                 )
             )
         return challenge_id

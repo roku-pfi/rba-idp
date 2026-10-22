@@ -38,7 +38,15 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 8 * 3600
     challenge_ttl_seconds: int = 5 * 60
     callback_ttl_seconds: int = 2 * 60
+    # POST /mfa/verify accepts this fixed code as a second factor. Test-only:
+    # with it on, anyone holding a password passes any step-up, so it is off
+    # unless explicitly enabled (and the endpoint answers 404 when off).
+    mock_otp_enabled: bool = False
     mock_otp_code: str = "000000"
+    # ADR-0037: how long after a low-risk login the session may enroll a
+    # passkey, and how long an operator-issued activation code lives.
+    enroll_window_seconds: int = 10 * 60
+    activation_ttl_seconds: int = 15 * 60
 
     webauthn_rp_id: str = "localhost"
     webauthn_rp_name: str = "RBA Identity"

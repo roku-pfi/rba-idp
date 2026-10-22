@@ -316,6 +316,7 @@ CROSS_TENANT = [
     ("POST", "/admin/api/groups/grp_rb_customers/members", {"user_id": "usr_kz_martin"}),
     ("POST", "/admin/api/groups/grp_rb_customers/roles", {"role_id": "role_kz_admin"}),
     ("PATCH", "/admin/api/users/usr_kz_martin", {"enabled": False}),
+    ("POST", "/admin/api/users/usr_kz_martin/activation-code", None),
     ("GET", "/admin/api/roles/role_kz_admin", None),
     ("PATCH", "/admin/api/roles/role_kz_admin", {"description": "x"}),
     ("DELETE", "/admin/api/roles/role_kz_admin", None),

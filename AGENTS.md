@@ -17,8 +17,10 @@ status / decisions live in the **`docs`** repo (`../docs`):
 Multi-tenant (ADR-0033/0034): tenant from the application (app login) or the
 email domain (console login); every admin query filtered by the operator's
 tenant; enforce the PDP's `enforced_action`; skip the PDP when the tenant's
-engine is `OFF`. WebAuthn passkey for step-ups (opaque copy).
-Mock OTP stays on `POST /mfa/verify` for tests. Completing MFA does not
+engine is `OFF`. WebAuthn passkey for step-ups (opaque copy); passkeys are
+enrolled only after a usual-context login or with an activation code
+(ADR-0037), never during a step-up.
+Mock OTP on `POST /mfa/verify` is off unless `MOCK_OTP_ENABLED` (tests). Completing MFA does not
 re-score. Travel rule stays in `rba-features` + the PDP. Do **not** add
 OIDC/SAML/SCIM
 ([ADR-0014](../docs/decisions/0014-thesis-scale-idp-platform.md)).
@@ -62,7 +64,7 @@ tests/test_login.py test_pdp.py test_session.py test_hosted_login.py test_admin.
 - Passwords: bcrypt only; never log or return the password.
 - Session tokens: opaque, stored hashed; `Authorization: Bearer`.
 - MFA: hosted login is WebAuthn (platform authenticator). Mock OTP (`000000`)
-  stays on `POST /mfa/verify` for tests. No TOTP/SMS. Completing MFA does
+  on `POST /mfa/verify` exists only with `MOCK_OTP_ENABLED` (tests). No TOTP/SMS. Completing MFA does
   **not** re-score.
 - Do **not** add Redis/Postgres compose here — use `../rba-infra`.
 - PDP unavailable on the **login** path → degrade to `PDP_UNAVAILABLE_ACTION`

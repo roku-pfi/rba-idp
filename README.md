@@ -21,7 +21,15 @@ the operator's email domain. The IdP applies the PDP's `enforced_action`
 ([ADR-0034](../docs/decisions/0034-base-policy-and-engine-mode.md)) and does
 not call the PDP at all for a tenant whose engine is `OFF`.
 
-Package version: **0.5.0**. Pins `rba-contracts` ≥ 0.9.0.
+**Passkeys are enrolled only from a trusted context**
+([ADR-0037](../docs/decisions/0037-passkey-enrollment-from-trusted-context.md)):
+after a login the engine judged usual (the session may add one passkey within
+10 minutes), or at `/activate` with an operator-issued code **plus** the
+password. A step-up for a user without a passkey is refused
+(`SECOND_FACTOR_MISSING`), never turned into an enrollment. The mock OTP exists
+only with `MOCK_OTP_ENABLED=true` (tests).
+
+Package version: **0.5.0**. Pins `rba-contracts` ≥ 0.10.0.
 
 > Status: [`../docs/plans/status.md`](../docs/plans/status.md).
 > ADRs: 0012–0026. AI: [`AGENTS.md`](AGENTS.md).
@@ -129,7 +137,10 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `GET` | `/healthz` | `{ "status": "ok" }` |
 | `POST` | `/login` | `LoginRequest` → `LoginResponse` |
 | `POST` | `/console/login` | `ConsoleLoginRequest` (no `application_id`) → `LoginResponse` |
-| `POST` | `/mfa/verify` | Mock OTP (`MfaVerifyRequest`) → `LoginResponse` |
+| `POST` | `/mfa/verify` | Mock OTP (`MfaVerifyRequest`) → `LoginResponse`. **404 unless `MOCK_OTP_ENABLED`** |
+| `POST` | `/passkeys/options`, `/passkeys/verify` | Bearer; enroll after a usual-context login (`passkey_offer`) |
+| `GET` | `/activate` | Activation page (code + password → passkey) |
+| `POST` | `/activate/options`, `/activate/verify` | `ActivationOptionsRequest` / `ActivationVerifyRequest` |
 | `POST` | `/mfa/webauthn/options` | `MfaWebAuthnOptionsRequest` → create/get options |
 | `POST` | `/mfa/webauthn/verify` | `MfaWebAuthnVerifyRequest` → `LoginResponse` |
 | `GET` | `/session` | Bearer required → `SessionResponse` with `application_id` and the session's effective `permissions` |
@@ -139,6 +150,7 @@ Contracts: `../rba-contracts/openapi/idp.yaml` (login) and
 | `PATCH` | `/admin/api/tenants/{id}` | Platform operator: name, operator domains, branding |
 | `GET/POST` | `/admin/api/users` | List / create (console session) |
 | `PATCH` | `/admin/api/users/{user_id}` | Enable / role / password |
+| `POST` | `/admin/api/users/{user_id}/activation-code` | `admin:write`; one-time code, 15 min, shown once |
 | `GET/POST` | `/admin/api/applications` | List / register |
 | `PATCH` | `/admin/api/applications/{id}` | Name / enabled |
 | `GET/POST` | `/admin/api/groups` | List / create |
@@ -180,6 +192,7 @@ tenancy is refused at startup with a message to reset it (ADR-0033).
 - `sessions` — PK `token_hash`; TTL `SESSION_TTL_SECONDS` (8h)
 - `mfa_challenges` — pending step-up; TTL 5m; `consumed_at` on success; WebAuthn nonce
 - `webauthn_credentials` — platform passkeys (`credential_id` PK, COSE public key)
+- `activation_codes` — operator-issued enrollment codes (hash only, single use)
 
 ## Setup
 
@@ -246,8 +259,13 @@ and an `Administradores` group that `is_admin` adds a user to. Operator domains:
 `rokubank.example`, `kazelabs.example`, `rokusec.example`. Tenant policies live
 in the PDP (`rba-decision-service/config/policies/`).
 
-No passkey is seeded — first MFA **creates** a platform passkey (to be closed
-by T-7, ADR-0037). Mock OTP `000000` (tests only).
+No passkey is seeded. On a fresh database nobody can pass a step-up, so the first
+code comes from the cluster (break glass), then operators issue the rest from
+the console:
+
+```bash
+kubectl exec deploy/idp -- python -m rba_idp.activation juan@rokusec.example --tenant rokusec
+```
 
 ## Env
 
@@ -261,7 +279,10 @@ by T-7, ADR-0037). Mock OTP `000000` (tests only).
 | `AUDIT_BASE_URL` | `http://localhost:8000` | PDP `GET /decisions` (live browser). Set to `:8002` only for the async audit copy |
 | `SESSION_TTL_SECONDS` | `28800` | 8h bearer session |
 | `CHALLENGE_TTL_SECONDS` | `300` | 5m MFA/reauth challenge |
-| `MOCK_OTP_CODE` | `000000` | tests only; hosted login uses WebAuthn |
+| `MOCK_OTP_ENABLED` | `false` | test-only fixed second factor; never in a deployment |
+| `MOCK_OTP_CODE` | `000000` | the code, when enabled |
+| `ENROLL_WINDOW_SECONDS` | `600` | how long a usual-context session may add a passkey |
+| `ACTIVATION_TTL_SECONDS` | `900` | operator-issued activation code lifetime |
 | `WEBAUTHN_RP_ID` | `localhost` | must match the browser host |
 | `WEBAUTHN_ORIGIN` | `http://localhost:8001,http://localhost:8080` | comma-separated; k8s sets `:8080` |
 | `POLICY_CACHE_SECONDS` | `5.0` | how long a tenant's policy is trusted before re-reading it (only `engine_mode: OFF` is decided from it) |

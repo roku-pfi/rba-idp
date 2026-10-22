@@ -380,7 +380,31 @@ export default function App() {
                       }}
                     >
                       {row.enabled ? "Disable" : "Enable"}
-                    </button>
+                    </button>{" "}
+                    {canWrite && row.enabled && (
+                      // ADR-0037: the only way a user without a passkey gets one
+                      // when every login asks for it. Shown once; stored hashed.
+                      <button
+                        className="secondary"
+                        type="button"
+                        onClick={() => {
+                          api<{ code: string; expires_at: string }>(
+                            `/admin/api/users/${row.user_id}/activation-code`,
+                            { method: "POST" }
+                          )
+                            .then((issued) =>
+                              setNotice(
+                                `Activation code for ${row.email}: ${issued.code} — valid until ${new Date(
+                                  issued.expires_at
+                                ).toLocaleTimeString()}. Give it to the user; it is not shown again. They enroll at /activate.`
+                              )
+                            )
+                            .catch((err: Error) => setError(err.message));
+                        }}
+                      >
+                        Activation code
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

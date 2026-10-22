@@ -25,6 +25,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from rba_contracts import (
     Action,
+    ActivationCodeResponse,
     AddGroupMemberRequest,
     AddGroupRoleRequest,
     AdminUserPublic,
@@ -95,6 +96,8 @@ from rba_idp.db.models import (
 from rba_idp.db.session import session_scope
 from rba_idp.passwords import hash_password
 from rba_idp.seed import bootstrap_console
+from rba_idp.config import Settings
+from rba_idp.services.enrollment import issue_activation_code
 from rba_idp.services.login import LoginService, _as_utc
 from rba_idp.tenancy import TenantPolicyCache
 
@@ -354,7 +357,9 @@ class AdminService:
         policy: PolicyClient,
         audit: AuditClient,
         policy_cache: TenantPolicyCache,
+        settings: Settings,
     ) -> None:
+        self._settings = settings
         self._session_factory = session_factory
         self._login = login
         self._policy = policy
@@ -531,6 +536,16 @@ class AdminService:
             session.flush()
             session.refresh(row)
             return _user_public(row)
+
+    def issue_activation_code(self, op: Operator, user_id: str) -> ActivationCodeResponse:
+        """ADR-0037: the operator hands this to the user out of band. Shown once."""
+        with session_scope(self._session_factory) as session:
+            user = _require_user(session, op.tenant_id, user_id)
+            if not user.enabled:
+                raise HTTPException(status_code=409, detail="user is disabled")
+            return issue_activation_code(
+                session, self._settings, user, issued_by=op.user_id
+            )
 
     # ---------------------------------------------------------------- applications
 

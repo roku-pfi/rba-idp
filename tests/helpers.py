@@ -85,6 +85,7 @@ class StubPdp:
         # What the PDP says to enforce; defaults to the verdict (ACTIVE).
         self.enforced: Action | None = None
         self.engine_mode = EngineMode.ACTIVE
+        self.fallback = False
 
     def evaluate(self, request: RiskEvaluateRequest) -> RiskEvaluateResponse:
         self.calls.append(request)
@@ -99,7 +100,7 @@ class StubPdp:
             model_version="freeman-0.1.0",
             policy_version="1.0.0",
             feature_schema_version="1.0.0",
-            fallback=False,
+            fallback=self.fallback,
             scored_at=datetime.now(timezone.utc),
         )
 
@@ -184,6 +185,7 @@ def test_settings(**overrides) -> Settings:
         "use_memory_db": True,
         "webauthn_rp_id": "testserver",
         "webauthn_origin": "http://testserver",
+        "mock_otp_enabled": True,
     }
     values.update(overrides)
     return Settings(**values)

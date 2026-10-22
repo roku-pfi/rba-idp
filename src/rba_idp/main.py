@@ -13,6 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from rba_contracts import (
     Action,
+    ActivationCodeResponse,
+    ActivationOptionsRequest,
+    ActivationVerifyRequest,
     AddGroupMemberRequest,
     AddGroupRoleRequest,
     AdminUserPublic,
@@ -36,6 +39,8 @@ from rba_contracts import (
     MfaWebAuthnOptionsRequest,
     MfaWebAuthnOptionsResponse,
     MfaWebAuthnVerifyRequest,
+    PasskeyOptionsResponse,
+    PasskeyVerifyRequest,
     PatchApplicationRequest,
     PatchGroupRequest,
     PatchRoleRequest,
@@ -66,6 +71,7 @@ from rba_idp.services.admin import (
     AdminService,
     Operator,
 )
+from rba_idp.services.enrollment import EnrollmentService
 from rba_idp.services.login import LoginService
 from rba_idp.tenancy import TenantPolicyCache
 from rba_idp.web import WEB_DIR
@@ -135,8 +141,9 @@ def create_app(
         app.state.session_factory = session_factory
         app.state.login_service = login_service
         app.state.admin_service = AdminService(
-            session_factory, login_service, policy, audit, policy_cache
+            session_factory, login_service, policy, audit, policy_cache, settings
         )
+        app.state.enrollment_service = EnrollmentService(session_factory, settings)
         logger.info(
             "rba-idp ready (multi-tenant). bank redirect=%s kaze redirect=%s pdp=%s audit=%s",
             settings.seed_bank_redirect_uri,
@@ -184,6 +191,10 @@ def create_app(
     @app.get("/console/login", include_in_schema=False)
     def console_login_page(request: Request):
         return hosted_login(request, console=True)
+
+    @app.get("/activate", include_in_schema=False)
+    def activate_page(request: Request):
+        return templates.TemplateResponse(request=request, name="activate.html", context={})
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -236,6 +247,31 @@ def create_app(
         body: MfaWebAuthnVerifyRequest, request: Request
     ) -> LoginResponse:
         return _run(request, lambda svc: svc.verify_webauthn(body))
+
+    # ---------------------------------------------------------------- enrollment (ADR-0037)
+
+    def _enroll(request: Request) -> EnrollmentService:
+        return request.app.state.enrollment_service
+
+    @app.post("/passkeys/options", response_model=PasskeyOptionsResponse)
+    def passkey_options(request: Request, authorization: Auth = None) -> PasskeyOptionsResponse:
+        return _enroll(request).session_options(authorization)
+
+    @app.post("/passkeys/verify", status_code=204)
+    def passkey_verify(
+        body: PasskeyVerifyRequest, request: Request, authorization: Auth = None
+    ) -> Response:
+        _enroll(request).session_verify(authorization, body)
+        return Response(status_code=204)
+
+    @app.post("/activate/options", response_model=PasskeyOptionsResponse)
+    def activate_options(body: ActivationOptionsRequest, request: Request) -> PasskeyOptionsResponse:
+        return _enroll(request).activation_options(body)
+
+    @app.post("/activate/verify", status_code=204)
+    def activate_verify(body: ActivationVerifyRequest, request: Request) -> Response:
+        _enroll(request).activation_verify(body)
+        return Response(status_code=204)
 
     @app.get("/session", response_model=SessionResponse)
     def get_session(
@@ -335,6 +371,17 @@ def create_app(
     ) -> AdminUserPublic:
         service, op = _op(request, authorization, tenant, ADMIN_WRITE)
         return service.patch_user(op, user_id, body)
+
+    @app.post(
+        "/admin/api/users/{user_id}/activation-code",
+        response_model=ActivationCodeResponse,
+        status_code=201,
+    )
+    def admin_issue_activation_code(
+        user_id: str, request: Request, authorization: Auth = None, tenant: ActingTenant = None
+    ) -> ActivationCodeResponse:
+        service, op = _op(request, authorization, tenant, ADMIN_WRITE)
+        return service.issue_activation_code(op, user_id)
 
     # ---------------------------------------------------------------- applications
 

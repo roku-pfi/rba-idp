@@ -232,6 +232,34 @@ class IdpSession(Base):
     )
     application_id: Mapped[str] = mapped_column(String(128), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # ADR-0037: set only when the session came from a low-risk login (engine
+    # verdict ALLOW) of a user with no passkey. Until then the session may
+    # enroll one passkey; cleared once it does.
+    enroll_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    webauthn_challenge: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ActivationCode(Base):
+    """Operator-issued, single-use passkey enrollment code (ADR-0037).
+
+    Only the hash is stored. Bound to one user; short-lived. Enrolling with it
+    also requires that user's password.
+    """
+
+    __tablename__ = "activation_codes"
+
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    # Who issued it: an operator's user_id, or "cli" for the break-glass path.
+    issued_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    webauthn_challenge: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -240,7 +268,8 @@ class IdpSession(Base):
 class MfaChallenge(Base):
     """Pending MFA / reauth after the PDP asked for a step-up.
 
-    Live path is WebAuthn (Demo-4). Mock OTP on ``POST /mfa/verify`` stays for tests.
+    Live path is WebAuthn. Mock OTP on ``POST /mfa/verify`` exists only when
+    ``MOCK_OTP_ENABLED`` (tests).
     """
 
     __tablename__ = "mfa_challenges"
@@ -261,6 +290,9 @@ class MfaChallenge(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     webauthn_challenge: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     webauthn_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Set when the step-up was refused outright, e.g. "no_second_factor"
+    # (ADR-0037). Such a row is born consumed.
+    denied_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
