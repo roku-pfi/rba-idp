@@ -75,7 +75,7 @@ from rba_idp.services.enrollment import EnrollmentService
 from rba_idp.services.login import LoginService
 from rba_idp.tenancy import TenantPolicyCache
 from rba_idp.web import WEB_DIR
-from rba_idp.web.context import hosted_boot
+from rba_idp.web.context import client_ip, hosted_boot
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +207,7 @@ def create_app(
         response_model_exclude_defaults=True,
     )
     def login(body: LoginRequest, request: Request) -> LoginResponse:
+        body = _observed(body, request)
         return _run(request, lambda svc: svc.login(body))
 
     @app.post(
@@ -216,6 +217,7 @@ def create_app(
         response_model_exclude_defaults=True,
     )
     def console_login(body: ConsoleLoginRequest, request: Request) -> LoginResponse:
+        body = _observed(body, request)
         return _run(request, lambda svc: svc.console_login(body))
 
     @app.post(
@@ -633,6 +635,15 @@ def create_app(
         return HTMLResponse(ADMIN_INDEX_HTML)
 
     return app
+
+
+def _observed(body, request: Request):
+    """Score the address the request came from, not the one the body claims
+    (ADR-0032) — unless this deployment trusts client-reported addresses."""
+    settings: Settings = request.app.state.settings
+    if settings.trust_client_reported_ip:
+        return body
+    return body.model_copy(update={"ip_address": client_ip(request, settings)})
 
 
 def _run(request: Request, op):

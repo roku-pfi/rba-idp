@@ -2,23 +2,64 @@
 
 from __future__ import annotations
 
+import ipaddress
+
 from fastapi import Request
 
+from rba_idp.config import Settings
 from rba_idp.db.models import Application, Tenant
 from rba_idp.db.session import session_scope
 from rba_idp.geo import resolve_login_signals, scored_ip
 
 
-def client_ip(request: Request) -> str:
-    """First X-Forwarded-For hop, else the peer address."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        first = forwarded.split(",", 1)[0].strip()
-        if first:
-            return first
-    if request.client and request.client.host:
-        return request.client.host
-    return "0.0.0.0"
+def _parse_ip(value: str) -> str | None:
+    try:
+        return str(ipaddress.ip_address(value.strip()))
+    except ValueError:
+        return None
+
+
+def _viewer_address(header: str) -> str | None:
+    """``CloudFront-Viewer-Address``: ``"198.51.100.10:46532"`` or
+    ``"2001:db8::1:46532"`` — the address, then ``:port``, IPv6 unbracketed."""
+    host, sep, port = header.strip().rpartition(":")
+    if not sep or not port.isdigit():
+        return None
+    return _parse_ip(host.strip("[]"))
+
+
+def client_ip(request: Request, settings: Settings) -> str:
+    """The client's address (ADR-0032).
+
+    Headers are believed only when the direct peer is a trusted proxy — a
+    client talking to the IdP directly can send any X-Forwarded-For it likes.
+    Behind CloudFront the viewer address comes from CloudFront's own header
+    (CloudFront overwrites it; the ALB only accepts CloudFront). Otherwise the
+    right-most X-Forwarded-For hop that is not itself a trusted proxy.
+    """
+    peer = (request.client.host if request.client else None) or "0.0.0.0"
+    proxies = settings.trusted_proxies()
+    peer_ip = _parse_ip(peer)
+
+    def trusted(ip: str | None) -> bool:
+        return ip is not None and any(ipaddress.ip_address(ip) in net for net in proxies)
+
+    if not trusted(peer_ip):
+        return peer_ip or peer
+    if settings.client_ip_header == "cloudfront-viewer-address":
+        viewer = _viewer_address(request.headers.get("cloudfront-viewer-address", ""))
+        return viewer or peer_ip
+    hops = [
+        hop
+        for hop in (
+            _parse_ip(part) for part in request.headers.get("x-forwarded-for", "").split(",")
+        )
+        if hop is not None
+    ]
+    for hop in reversed(hops):
+        if not trusted(hop):
+            return hop
+    return peer_ip
 
 
 def hosted_boot(
@@ -48,7 +89,8 @@ def hosted_boot(
                 tenant_name = tenant.display_name if tenant is not None else None
                 unknown = False
                 registered = row.redirect_uri
-    ip = scored_ip(client_ip(request))
+    settings: Settings = request.app.state.settings
+    ip = scored_ip(client_ip(request, settings), private_is_home=settings.private_ip_is_home)
     signals = resolve_login_signals(
         ip,
         country=request.query_params.get("country"),

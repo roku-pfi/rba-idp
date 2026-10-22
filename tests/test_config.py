@@ -18,6 +18,10 @@ CLOUD = {
     "webauthn_rp_id": AUTH,
     "webauthn_origin": f"https://{AUTH}",
     "seed_password_suffix": "Zq8v2LmT4xRw",
+    "trusted_proxy_cidrs": "10.0.0.0/20,10.0.16.0/20",
+    "client_ip_header": "cloudfront-viewer-address",
+    "trust_client_reported_ip": False,
+    "private_ip_is_home": False,
     "seed_bank_redirect_uri": "https://d3m6kfm1gma0g6.cloudfront.net/callback",
     "seed_kaze_redirect_uri": "https://d14wc5kuicqxf6.cloudfront.net/callback",
 }
@@ -45,6 +49,9 @@ def test_local_is_the_default_and_accepts_the_defaults() -> None:
         ({"webauthn_origin": f"http://{AUTH}"}, "https:// origins"),
         ({"webauthn_origin": "https://evil.example"}, "subdomain"),
         ({"seed_password_suffix": "demo"}, "SEED_PASSWORD_SUFFIX"),
+        ({"trust_client_reported_ip": True}, "TRUST_CLIENT_REPORTED_IP"),
+        ({"private_ip_is_home": True}, "PRIVATE_IP_IS_HOME"),
+        ({"trusted_proxy_cidrs": ""}, "TRUSTED_PROXY_CIDRS"),
         ({"seed_bank_redirect_uri": "http://localhost:8002/callback"}, "SEED_BANK_REDIRECT_URI"),
     ],
 )

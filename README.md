@@ -273,6 +273,10 @@ kubectl exec deploy/idp -- python -m rba_idp.activation juan@rokusec.example --t
 |---|---|---|
 | `DEPLOYMENT` | `local` | `cloud` refuses to start while any local-only default remains (memory DB, mock OTP, `rba:rba`/localhost URLs, non-https public URL / WebAuthn origins, RP ID `localhost`, seed suffix `demo`), listing every problem at once |
 | `PUBLIC_URL` | `http://localhost:8001` | browser-facing origin of this IdP (CloudFront in the cloud) |
+| `TRUSTED_PROXY_CIDRS` | *(empty)* | forwarding headers are believed only from these peers (the ALB's subnets). Empty: the socket peer is the client |
+| `CLIENT_IP_HEADER` | `x-forwarded-for` | `cloudfront-viewer-address` behind CloudFront (XFF's right-most hop there is the edge) |
+| `TRUST_CLIENT_REPORTED_IP` | `true` | accept `ip_address` from the login body (local walkthrough). Off in the cloud: the address is the request's |
+| `PRIVATE_IP_IS_HOME` | `true` | score private peers as the demo home. Off in the cloud |
 | `DATABASE_URL` | `postgresql+psycopg://rba:rba@localhost:5432/rba_idp` | |
 | `USE_MEMORY_DB` | `false` | sqlite StaticPool for tests |
 | `PDP_BASE_URL` | `http://localhost:8000` | `rba-decision-service` |
