@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         issued = issue_activation_code(session, settings, user, issued_by="cli")
     print(f"{issued.code}  (user {issued.user_id}, valid until {issued.expires_at:%H:%M} UTC)")
-    print("Enroll at /activate with this code and the user's password.")
+    print(f"Enroll at {settings.public_url.rstrip('/')}/activate with this code and the user's password.")
     return 0
 
 

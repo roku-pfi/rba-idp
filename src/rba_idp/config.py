@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
 class Settings(BaseSettings):
@@ -14,6 +18,13 @@ class Settings(BaseSettings):
     app_name: str = "rba-idp"
     host: str = "0.0.0.0"
     port: int = 8001
+
+    # C-1. "local" (compose, k3d, tests) accepts the defaults below. "cloud"
+    # refuses to start while any of them is still in place — every default
+    # here works, which is exactly why one left behind would go unnoticed.
+    deployment: Literal["local", "cloud"] = "local"
+    # This IdP's browser-facing origin (CloudFront in the cloud).
+    public_url: str = "http://localhost:8001"
 
     database_url: str = "postgresql+psycopg://rba:rba@localhost:5432/rba_idp"
     # When true, use in-memory SQLite (unit tests / no Docker).
@@ -49,7 +60,7 @@ class Settings(BaseSettings):
     activation_ttl_seconds: int = 15 * 60
 
     webauthn_rp_id: str = "localhost"
-    webauthn_rp_name: str = "RBA Identity"
+    webauthn_rp_name: str = "RokuSec"
     # Comma-separated origins. Compose uses :8001; k3d Ingress uses :8080.
     webauthn_origin: str = "http://localhost:8001,http://localhost:8080"
 
@@ -69,6 +80,58 @@ class Settings(BaseSettings):
 
     audit_base_url: str = "http://localhost:8000"
     audit_timeout_seconds: float = 2.0
+
+    def webauthn_origins(self) -> list[str]:
+        return [part.strip() for part in self.webauthn_origin.split(",") if part.strip()]
+
+    @model_validator(mode="after")
+    def _cloud_is_explicit(self) -> "Settings":
+        if self.deployment == "cloud":
+            problems = cloud_problems(self)
+            if problems:
+                raise ValueError(
+                    "DEPLOYMENT=cloud refuses to start:\n  - " + "\n  - ".join(problems)
+                )
+        return self
+
+
+def _is_local(url: str) -> bool:
+    return (urlparse(url).hostname or "") in LOCAL_HOSTS
+
+
+def cloud_problems(s: Settings) -> list[str]:
+    """Everything that would make a cloud IdP insecure or silently wrong."""
+    problems: list[str] = []
+    if s.use_memory_db:
+        problems.append("USE_MEMORY_DB is on: the directory would vanish with the pod")
+    if s.mock_otp_enabled:
+        problems.append("MOCK_OTP_ENABLED is on: a fixed code would pass every step-up")
+    if "rba:rba@" in s.database_url or _is_local(s.database_url):
+        problems.append("DATABASE_URL is the local default")
+    for name in ("pdp_base_url", "audit_base_url"):
+        if _is_local(getattr(s, name)):
+            problems.append(f"{name.upper()} points at localhost")
+    if not s.public_url.startswith("https://") or _is_local(s.public_url):
+        problems.append("PUBLIC_URL must be the https:// origin browsers use")
+    # WebAuthn: passkeys are bound to the RP ID; one registered against
+    # "localhost" is useless anywhere else, and browsers require https.
+    if s.webauthn_rp_id in LOCAL_HOSTS:
+        problems.append("WEBAUTHN_RP_ID is localhost")
+    origins = s.webauthn_origins()
+    if not origins or any(not o.startswith("https://") for o in origins):
+        problems.append("WEBAUTHN_ORIGIN must list only https:// origins")
+    elif any((urlparse(o).hostname or "") != s.webauthn_rp_id
+             and not (urlparse(o).hostname or "").endswith("." + s.webauthn_rp_id)
+             for o in origins):
+        problems.append("every WEBAUTHN_ORIGIN must be WEBAUTHN_RP_ID or a subdomain of it")
+    # Seeded passwords are "<name>-<suffix>"; the default suffix is in git.
+    if s.seed_password_suffix == "demo" or len(s.seed_password_suffix) < 12:
+        problems.append("SEED_PASSWORD_SUFFIX must be a generated secret (≥ 12 chars)")
+    for name in ("seed_bank_redirect_uri", "seed_kaze_redirect_uri"):
+        value = getattr(s, name)
+        if not value.startswith("https://") or _is_local(value):
+            problems.append(f"{name.upper()} must be an https:// URL")
+    return problems
 
 
 @lru_cache
