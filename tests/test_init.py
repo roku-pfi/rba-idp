@@ -26,3 +26,18 @@ def test_with_init_off_the_server_does_not_create_the_schema() -> None:
     fails loudly instead of racing its siblings."""
     with client_for(StubPdp(), settings=make_settings(init_on_startup=False)) as client:
         assert client.post("/login", json=LOGIN).status_code == 500
+
+
+def test_a_kept_database_gets_new_nullable_columns() -> None:
+    """k3d keeps its database across deploys; a new optional column is added
+    in place instead of asking for a reset."""
+    from sqlalchemy import inspect, text
+
+    from rba_idp.db.session import create_tables
+
+    engine = make_engine("", memory=True)
+    create_tables(engine)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users DROP COLUMN last_login_at"))
+    create_tables(engine)
+    assert "last_login_at" in {c["name"] for c in inspect(engine).get_columns("users")}

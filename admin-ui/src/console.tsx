@@ -1,6 +1,7 @@
 /* What every page needs from the shell: who is signed in, what they may do,
    which tenant the console is scoped to, and a way to say something. */
 
+import { ToastNotification } from "@carbon/react";
 import { createContext, ReactNode, useCallback, useContext, useRef, useState } from "react";
 import type { SessionUser, Tenant } from "./api";
 
@@ -53,18 +54,21 @@ export function ConsoleProvider({
   return (
     <ConsoleContext.Provider value={{ ...value, ok, fail }}>
       {children}
-      <div className="toasts" role="status" aria-live="polite">
+      <div className="rk-toasts" role="status" aria-live="polite">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast ${toast.kind}`}>
-            <span>{toast.text}</span>
-            <button
-              type="button"
-              aria-label="Cerrar"
-              onClick={() => setToasts((list) => list.filter((t) => t.id !== toast.id))}
-            >
-              ×
-            </button>
-          </div>
+          <ToastNotification
+            key={toast.id}
+            kind={toast.kind === "ok" ? "success" : "error"}
+            title={toast.kind === "ok" ? "Listo" : "No se pudo completar"}
+            subtitle={toast.text}
+            lowContrast
+            ariaLabel="Cerrar aviso"
+            statusIconDescription={toast.kind === "ok" ? "Éxito" : "Error"}
+            onClose={() => {
+              setToasts((list) => list.filter((t) => t.id !== toast.id));
+              return false;
+            }}
+          />
         ))}
       </div>
     </ConsoleContext.Provider>

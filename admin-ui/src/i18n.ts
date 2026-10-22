@@ -11,7 +11,28 @@ const time = new Intl.DateTimeFormat(LOCALE, { timeStyle: "short" });
 const decimal = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const integer = new Intl.NumberFormat(LOCALE);
 
+const relative = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
+const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["second", 60],
+  ["minute", 60],
+  ["hour", 24],
+  ["day", 30],
+  ["month", 12],
+  ["year", Infinity],
+];
+
+/** "hace 5 minutos", "ayer", "hace 3 meses". */
+function ago(iso: string): string {
+  let value = (new Date(iso).getTime() - Date.now()) / 1000;
+  for (const [unit, size] of STEPS) {
+    if (Math.abs(value) < size) return relative.format(Math.round(value), unit);
+    value /= size;
+  }
+  return relative.format(Math.round(value), "year");
+}
+
 export const fmt = {
+  ago,
   dateTime: (iso: string) => dateTime.format(new Date(iso)),
   time: (iso: string) => time.format(new Date(iso)),
   score: (value: number) => decimal.format(value),

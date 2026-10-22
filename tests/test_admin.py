@@ -116,6 +116,18 @@ def test_admin_requires_session(client: TestClient) -> None:
     assert client.get("/admin/api/users").status_code == 401
 
 
+def test_a_user_row_says_groups_passkeys_and_last_login(client: TestClient) -> None:
+    """What the Usuarios page shows without a second request per user."""
+    token = _admin_token(client)
+    rows = {row["email"]: row for row in client.get("/admin/api/users", headers=_auth(token)).json()}
+    diego, martin = rows["diego@rokubank.example"], rows["martin@correo.example"]
+    # Diego just signed in to the console; Martín has not signed in at all.
+    assert diego["last_login_at"] is not None
+    assert martin["last_login_at"] is None
+    assert [g["name"] for g in diego["groups"]]
+    assert martin["passkeys"] == 0
+
+
 def test_admin_lists_users_and_creates(client: TestClient) -> None:
     token = _admin_token(client)
     listed = client.get("/admin/api/users", headers=_auth(token))

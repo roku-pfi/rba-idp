@@ -6,13 +6,22 @@ import { useEffect, useState } from "react";
 
 export type Page = "decisions" | "policy" | "users" | "apps" | "groups" | "roles";
 
-export const PAGES: { id: Page; slug: string; label: string }[] = [
-  { id: "decisions", slug: "decisiones", label: "Decisiones" },
-  { id: "policy", slug: "politica", label: "Política" },
-  { id: "users", slug: "usuarios", label: "Usuarios" },
-  { id: "groups", slug: "grupos", label: "Grupos" },
-  { id: "roles", slug: "roles", label: "Roles" },
-  { id: "apps", slug: "aplicaciones", label: "Aplicaciones" },
+/** The side navigation's sections, grouped by what the operator is doing. */
+export type Section = "activity" | "directory" | "access";
+
+export const SECTIONS: { id: Section; label: string }[] = [
+  { id: "activity", label: "Actividad" },
+  { id: "directory", label: "Directorio" },
+  { id: "access", label: "Acceso" },
+];
+
+export const PAGES: { id: Page; slug: string; label: string; section: Section }[] = [
+  { id: "decisions", slug: "decisiones", label: "Decisiones", section: "activity" },
+  { id: "users", slug: "usuarios", label: "Usuarios", section: "directory" },
+  { id: "groups", slug: "grupos", label: "Grupos", section: "directory" },
+  { id: "roles", slug: "roles", label: "Roles", section: "directory" },
+  { id: "apps", slug: "aplicaciones", label: "Aplicaciones", section: "access" },
+  { id: "policy", slug: "politica", label: "Política", section: "access" },
 ];
 
 const BASE = "/admin/";

@@ -644,6 +644,9 @@ class LoginService:
     ) -> SessionToken:
         raw = new_session_token()
         expires_at = now + timedelta(seconds=self._settings.session_ttl_seconds)
+        user = session.get(User, user_id)
+        if user is not None:
+            user.last_login_at = now
         session.add(
             IdpSession(
                 token_hash=hash_session_token(raw),

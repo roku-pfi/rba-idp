@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -32,6 +33,28 @@ class SchemaPredatesTenancy(RuntimeError):
 def create_tables(engine: Engine) -> None:
     _refuse_pre_tenancy_schema(engine)
     Base.metadata.create_all(engine)
+    _add_nullable_columns(engine)
+
+
+def _add_nullable_columns(engine: Engine) -> None:
+    """Add columns that are new and nullable to tables that already exist.
+
+    The one schema change ``create_all`` cannot make and a kept database (k3d)
+    still needs. Anything else, such as a NOT NULL column or a type change, is
+    still "reset the database".
+    """
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in existing:
+                continue
+            have = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in have or not column.nullable:
+                    continue
+                kind = column.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
 
 
 def _refuse_pre_tenancy_schema(engine: Engine) -> None:
@@ -57,14 +80,26 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
+# The in-memory database is one SQLite connection shared by every thread
+# (StaticPool). Two requests using it at once interleave their transactions, so
+# there, and only there, sessions take turns.
+_MEMORY_LOCK = threading.RLock()
+
+
+def _shares_one_connection(factory: sessionmaker[Session]) -> bool:
+    bind = factory.kw.get("bind")
+    return isinstance(getattr(bind, "pool", None), StaticPool)
+
+
 @contextmanager
 def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:
-    session = factory()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+    with _MEMORY_LOCK if _shares_one_connection(factory) else nullcontext():
+        session = factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()

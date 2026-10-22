@@ -43,6 +43,7 @@ from rba_contracts import (
     GroupDetail,
     GroupMemberPublic,
     GroupPublic,
+    GroupRef,
     GroupRolePublic,
     LevelToAction,
     PatchApplicationRequest,
@@ -92,6 +93,7 @@ from rba_idp.db.models import (
     Tenant,
     TenantDomain,
     User,
+    WebAuthnCredential,
 )
 from rba_idp.db.session import session_scope
 from rba_idp.passwords import hash_password
@@ -119,15 +121,44 @@ class Operator:
 # ---------------------------------------------------------------- serialisers
 
 
-def _user_public(row: User) -> AdminUserPublic:
-    return AdminUserPublic(
-        tenant_id=row.tenant_id,
-        user_id=row.user_id,
-        email=row.email,
-        enabled=row.enabled,
-        is_admin=bool(row.is_admin),
-        created_at=_as_utc(row.created_at),
-    )
+def _users_public(session: Session, rows: list[User]) -> list[AdminUserPublic]:
+    """Directory rows with groups and passkey counts, in two queries for the page."""
+    ids = [row.user_id for row in rows]
+    groups: dict[str, list[GroupRef]] = {uid: [] for uid in ids}
+    passkeys: dict[str, int] = {}
+    if ids:
+        for user_id, group_id, name in session.execute(
+            select(GroupMembership.user_id, Group.group_id, Group.name)
+            .join(Group, Group.group_id == GroupMembership.group_id)
+            .where(GroupMembership.user_id.in_(ids))
+            .order_by(Group.name)
+        ):
+            groups[user_id].append(GroupRef(group_id=group_id, name=name))
+        passkeys = dict(
+            session.execute(
+                select(WebAuthnCredential.user_id, func.count())
+                .where(WebAuthnCredential.user_id.in_(ids))
+                .group_by(WebAuthnCredential.user_id)
+            ).all()
+        )
+    return [
+        AdminUserPublic(
+            tenant_id=row.tenant_id,
+            user_id=row.user_id,
+            email=row.email,
+            enabled=row.enabled,
+            is_admin=bool(row.is_admin),
+            created_at=_as_utc(row.created_at),
+            groups=groups[row.user_id],
+            passkeys=passkeys.get(row.user_id, 0),
+            last_login_at=_as_utc(row.last_login_at) if row.last_login_at else None,
+        )
+        for row in rows
+    ]
+
+
+def _user_public(session: Session, row: User) -> AdminUserPublic:
+    return _users_public(session, [row])[0]
 
 
 def _app_public(row: Application) -> ApplicationPublic:
@@ -490,7 +521,7 @@ class AdminService:
             rows = session.scalars(
                 select(User).where(User.tenant_id == op.tenant_id).order_by(User.email)
             ).all()
-            return [_user_public(row) for row in rows]
+            return _users_public(session, list(rows))
 
     def create_user(self, op: Operator, body: CreateUserRequest) -> AdminUserPublic:
         email = body.email.strip().lower()
@@ -519,7 +550,7 @@ class AdminService:
             _sync_admin_flag(session, tenant, user_id, body.is_admin)
             session.flush()
             session.refresh(row)
-            return _user_public(row)
+            return _user_public(session, row)
 
     def patch_user(self, op: Operator, user_id: str, body: PatchUserRequest) -> AdminUserPublic:
         with session_scope(self._session_factory) as session:
@@ -535,7 +566,7 @@ class AdminService:
                 row.password_hash = hash_password(body.password)
             session.flush()
             session.refresh(row)
-            return _user_public(row)
+            return _user_public(session, row)
 
     def issue_activation_code(self, op: Operator, user_id: str) -> ActivationCodeResponse:
         """ADR-0037: the operator hands this to the user out of band. Shown once."""

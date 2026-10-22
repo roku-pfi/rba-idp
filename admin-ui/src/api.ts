@@ -27,6 +27,10 @@ export type AdminUser = {
   enabled: boolean;
   is_admin: boolean;
   created_at: string;
+  groups: { group_id: string; name: string }[];
+  /** 0 means a step-up cannot succeed (ADR-0037). */
+  passkeys: number;
+  last_login_at: string | null;
 };
 
 export type Application = {
