@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "react";
 
-export type Page = "decisions" | "policy" | "users" | "apps" | "groups" | "roles";
+export type Page = "home" | "events" | "policy" | "users" | "apps" | "groups" | "roles" | "account";
 
 /** The side navigation's sections, grouped by what the operator is doing. */
 export type Section = "activity" | "directory" | "access";
@@ -15,17 +15,20 @@ export const SECTIONS: { id: Section; label: string }[] = [
   { id: "access", label: "Acceso" },
 ];
 
-export const PAGES: { id: Page; slug: string; label: string; section: Section }[] = [
-  { id: "decisions", slug: "decisiones", label: "Decisiones", section: "activity" },
+// `section: null` pages are reached from elsewhere (the account menu), not the nav.
+export const PAGES: { id: Page; slug: string; label: string; section: Section | null }[] = [
+  { id: "home", slug: "resumen", label: "Resumen", section: "activity" },
+  { id: "events", slug: "eventos", label: "Eventos", section: "activity" },
   { id: "users", slug: "usuarios", label: "Usuarios", section: "directory" },
   { id: "groups", slug: "grupos", label: "Grupos", section: "directory" },
   { id: "roles", slug: "roles", label: "Roles", section: "directory" },
   { id: "apps", slug: "aplicaciones", label: "Aplicaciones", section: "access" },
   { id: "policy", slug: "politica", label: "Política", section: "access" },
+  { id: "account", slug: "cuenta", label: "Mi cuenta", section: null },
 ];
 
 const BASE = "/admin/";
-const HOME: Page = "decisions";
+const HOME: Page = "home";
 
 type Route = { page: Page; id: string | null };
 

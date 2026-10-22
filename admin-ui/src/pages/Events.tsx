@@ -297,18 +297,18 @@ function DecisionPage({ eventId, lookup }: { eventId: string; lookup: Lookup }) 
     <>
       <Breadcrumb noTrailingSlash className="rk-breadcrumb">
         <BreadcrumbItem
-          href={hrefOf("decisions")}
+          href={hrefOf("events")}
           onClick={(event: React.MouseEvent) => {
             event.preventDefault();
-            navigate("decisions");
+            navigate("events");
           }}
         >
-          Decisiones
+          Eventos
         </BreadcrumbItem>
         <BreadcrumbItem isCurrentPage>{item ? fmt.dateTime(item.occurred_at) : "…"}</BreadcrumbItem>
       </Breadcrumb>
       {loading && !item ? null : !item ? (
-        <InlineNotification kind="error" hideCloseButton title="No encontramos esta decisión." subtitle="Puede ser de otra organización o el enlace está incompleto." />
+        <InlineNotification kind="error" hideCloseButton title="No encontramos este evento." subtitle="Puede ser de otra organización o el enlace está incompleto." />
       ) : (
         <>
           <div className="rk-page-head">
@@ -339,7 +339,7 @@ function DecisionPage({ eventId, lookup }: { eventId: string; lookup: Lookup }) 
 const ALL = "ALL";
 const OUTCOME_FILTER = [ALL, "ALLOW", "REQUIRE_MFA", "REAUTHENTICATE", "BLOCK"];
 
-export function Decisions({ itemId }: { itemId: string | null }) {
+export function Events({ itemId }: { itemId: string | null }) {
   const { fail } = useConsole();
   const lookup = useLookup();
   const [items, reload, loading] = useLoad(
@@ -392,7 +392,7 @@ export function Decisions({ itemId }: { itemId: string | null }) {
     <>
       <div className="rk-page-head">
         <div>
-          <h1>Decisiones</h1>
+          <h1>Eventos</h1>
           <p>Cada inicio de sesión que evaluó el motor: de dónde vino, qué tan riesgoso era y qué se hizo. Abrí una fila para ver por qué.</p>
         </div>
         <div className="rk-refresh">
@@ -418,7 +418,7 @@ export function Decisions({ itemId }: { itemId: string | null }) {
                 <TableToolbarContent>
                   <TableToolbarSearch
                     persistent
-                    labelText="Buscar decisiones"
+                    labelText="Buscar eventos"
                     placeholder="Buscar por usuario, IP o país"
                     onChange={(event: "" | React.ChangeEvent<HTMLInputElement>) => {
                       setQuery(event ? event.target.value : "");
@@ -474,7 +474,7 @@ export function Decisions({ itemId }: { itemId: string | null }) {
                         <span className="rk-secondary">
                           {items.length === 0
                             ? "Todavía no hay inicios de sesión evaluados en esta organización."
-                            : "Ninguna decisión coincide con los filtros."}
+                            : "Ningún evento coincide con los filtros."}
                         </span>
                       </TableCell>
                     </TableRow>
@@ -511,10 +511,10 @@ export function Decisions({ itemId }: { itemId: string | null }) {
                           <Explanation item={item} />
                           <Link
                             className="rk-open"
-                            href={hrefOf("decisions", item.event_id)}
+                            href={hrefOf("events", item.event_id)}
                             onClick={(event: React.MouseEvent) => {
                               event.preventDefault();
-                              navigate("decisions", item.event_id);
+                              navigate("events", item.event_id);
                             }}
                           >
                             Abrir en su propia página

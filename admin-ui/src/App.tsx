@@ -4,7 +4,6 @@ import {
   Dropdown,
   Header,
   HeaderContainer,
-  HeaderGlobalAction,
   HeaderGlobalBar,
   HeaderMenuButton,
   HeaderName,
@@ -15,9 +14,11 @@ import {
   SideNavMenu,
   SideNavMenuItem,
   SkipToContent,
-  Tag,
+  Switcher,
+  SwitcherDivider,
+  SwitcherItem,
 } from "@carbon/react";
-import { Activity, Enterprise, Security, UserAvatar, UserMultiple } from "@carbon/icons-react";
+import { Activity, Enterprise, Security, UserMultiple } from "@carbon/icons-react";
 import { useEffect, useState } from "react";
 import {
   actingTenant,
@@ -29,9 +30,12 @@ import {
   type SessionUser,
   type Tenant,
 } from "./api";
+import { Avatar } from "./components";
 import { ConsoleProvider } from "./console";
+import { Account, standing } from "./pages/Account";
 import { Apps } from "./pages/Apps";
-import { Decisions } from "./pages/Decisions";
+import { Events } from "./pages/Events";
+import { Home } from "./pages/Home";
 import { Groups } from "./pages/Groups";
 import { Policy } from "./pages/Policy";
 import { Roles } from "./pages/Roles";
@@ -39,7 +43,9 @@ import { Users } from "./pages/Users";
 import { hrefOf, navigate, PAGES, SECTIONS, useRoute, type Page, type Section } from "./router";
 
 const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element> = {
-  decisions: Decisions,
+  home: Home,
+  events: Events,
+  account: Account,
   policy: Policy,
   users: Users,
   groups: Groups,
@@ -48,7 +54,7 @@ const PAGE_VIEW: Record<Page, (props: { itemId: string | null }) => JSX.Element>
 };
 
 // Pages already rebuilt on Carbon; the rest keep their old look (U-2).
-const CARBON_PAGES = new Set<Page>(["users", "decisions"]);
+const CARBON_PAGES = new Set<Page>(["home", "events", "users", "account"]);
 
 const SECTION_ICON: Record<Section, typeof Activity> = {
   activity: Activity,
@@ -56,19 +62,13 @@ const SECTION_ICON: Record<Section, typeof Activity> = {
   access: Security,
 };
 
-/** The session's standing in one phrase; the scopes themselves are listed below it. */
-function standing(granted: string[]): string {
-  if (granted.includes("tenants:read")) return "Operador de la plataforma";
-  if (granted.includes("admin:write")) return "Administrador";
-  return "Soporte · solo lectura";
-}
-
 const LOGO = "/static/brand/rokusec-logo-horizontal-inverse.svg";
 const MARK = "/static/brand/rokusec-mark-inverse.svg";
 
 export default function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [granted, setGranted] = useState<string[]>([]);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [bootError, setBootError] = useState("");
   // ADR-0033: the tenant this console is scoped to, and — for a platform
@@ -84,7 +84,7 @@ export default function App() {
       redirectToLogin();
       return;
     }
-    api<{ user: SessionUser; permissions?: string[] }>("/session")
+    api<{ user: SessionUser; permissions?: string[]; expires_at?: string }>("/session")
       .then((session) => {
         const perms = session.permissions ?? [];
         if (!perms.includes("admin:read")) {
@@ -92,6 +92,7 @@ export default function App() {
           return;
         }
         setGranted(perms);
+        setExpiresAt(session.expires_at ?? null);
         setUser(session.user);
         if (perms.includes("tenants:read")) {
           // The server decides whether this is a platform operator; a 403 here
@@ -107,6 +108,22 @@ export default function App() {
   useEffect(() => {
     if (user) api<Tenant>("/admin/api/tenant").then(setTenant).catch(() => setTenant(null));
   }, [user, scope]);
+
+  // The account menu closes on a click anywhere else, or on Escape.
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onClick = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest(".rk-account-button, .rk-account-panel")) setAccountOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setAccountOpen(false);
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [accountOpen]);
 
   if (forbidden || bootError) {
     return (
@@ -132,7 +149,9 @@ export default function App() {
   };
 
   return (
-    <ConsoleProvider value={{ user, tenant, scope: scopeId, can: (permission) => granted.includes(permission) }}>
+    <ConsoleProvider
+      value={{ user, tenant, scope: scopeId, can: (permission) => granted.includes(permission), permissions: granted, expiresAt }}
+    >
       <HeaderContainer
         render={({ isSideNavExpanded, onClickSideNavExpand }: { isSideNavExpanded: boolean; onClickSideNavExpand: () => void }) => (
           <>
@@ -144,38 +163,43 @@ export default function App() {
                 isActive={isSideNavExpanded}
                 aria-expanded={isSideNavExpanded}
               />
-              <HeaderName className="rk-header-name" href={hrefOf("decisions")} prefix="" onClick={go("decisions")}>
+              <HeaderName className="rk-header-name" href={hrefOf("home")} prefix="" onClick={go("home")}>
                 <img className="rk-header-mark" src={MARK} alt="" width={15} height={22} />
-                <span className="cds--header__name--prefix">RokuSec</span>&nbsp;Consola
+                RokuSec
               </HeaderName>
               <HeaderGlobalBar>
-                <HeaderGlobalAction
-                  aria-label="Cuenta"
-                  isActive={accountOpen}
+                {/* Who is signed in, always in view; the menu holds the rest. */}
+                <button
+                  type="button"
+                  className={`rk-account-button${accountOpen ? " is-open" : ""}`}
+                  aria-label={`Cuenta de ${user.email}`}
+                  aria-expanded={accountOpen}
                   onClick={() => setAccountOpen((open) => !open)}
-                  tooltipAlignment="end"
                 >
-                  <UserAvatar size={20} />
-                </HeaderGlobalAction>
+                  <Avatar email={user.email} />
+                  <span className="rk-account-label">
+                    <span className="rk-account-email">{user.email}</span>
+                    <span className="rk-account-role">{standing(granted)}</span>
+                  </span>
+                </button>
               </HeaderGlobalBar>
-              <HeaderPanel expanded={accountOpen} aria-label="Cuenta">
-                <div className="rk-account">
-                  <div className="rk-account-email">{user.email}</div>
-                  <div className="rk-account-role">{standing(granted)}</div>
-                  {/* What this session actually holds: the answer to "why can I
-                      see this button and my colleague cannot". */}
-                  <div className="rk-org-label">Permisos de esta sesión</div>
-                  <div className="rk-account-scopes">
-                    {granted.map((item) => (
-                      <Tag key={item} type="cool-gray" size="sm" className="rk-mono">
-                        {item}
-                      </Tag>
-                    ))}
-                  </div>
-                  <Button kind="secondary" size="md" onClick={() => void logout()}>
+              <HeaderPanel expanded={accountOpen} aria-label="Cuenta" className="rk-account-panel">
+                <Switcher aria-label="Cuenta">
+                  <SwitcherItem
+                    aria-label="Mi cuenta"
+                    href={hrefOf("account")}
+                    onClick={(event: React.MouseEvent) => {
+                      setAccountOpen(false);
+                      go("account")(event);
+                    }}
+                  >
+                    Mi cuenta
+                  </SwitcherItem>
+                  <SwitcherDivider />
+                  <SwitcherItem aria-label="Cerrar sesión" href="#" onClick={(event: React.MouseEvent) => { event.preventDefault(); void logout(); }}>
                     Cerrar sesión
-                  </Button>
-                </div>
+                  </SwitcherItem>
+                </Switcher>
               </HeaderPanel>
 
               <SideNav aria-label="Secciones" expanded={isSideNavExpanded} onSideNavBlur={onClickSideNavExpand} href="#main-content">

@@ -68,7 +68,7 @@ def test_admin_page(client: TestClient) -> None:
 
 def test_console_pages_are_urls(client: TestClient) -> None:
     """Every section has its own address; a reload lands on the same page."""
-    for slug in ("decisiones", "politica", "usuarios", "grupos", "roles", "aplicaciones"):
+    for slug in ("resumen", "eventos", "eventos/4f9a8c2e", "politica", "usuarios", "grupos", "roles", "aplicaciones", "cuenta"):
         resp = client.get(f"/admin/{slug}")
         assert resp.status_code == 200 and 'id="root"' in resp.text, slug
     assert client.get("/admin/api/nope").status_code == 404

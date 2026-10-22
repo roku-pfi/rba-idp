@@ -14,6 +14,8 @@ export type Console = {
   scope: string;
   /** ADR-0029: the console is gated by permissions, not by the is_admin flag. */
   can: (permission: string) => boolean;
+  permissions: string[];
+  expiresAt: string | null;
   ok: (text: string) => void;
   fail: (err: unknown) => void;
 };
