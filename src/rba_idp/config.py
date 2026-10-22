@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # refuses to start while any of them is still in place — every default
     # here works, which is exactly why one left behind would go unnoticed.
     deployment: Literal["local", "cloud"] = "local"
+    # C-4: create the schema and seed at startup. On in compose/k3d/tests; off
+    # where `python -m rba_idp.init` runs as a Job before the replicas.
+    init_on_startup: bool = True
+
     # This IdP's browser-facing origin (CloudFront in the cloud).
     public_url: str = "http://localhost:8001"
 
@@ -140,6 +144,8 @@ def cloud_problems(s: Settings) -> list[str]:
     problems: list[str] = []
     if s.use_memory_db:
         problems.append("USE_MEMORY_DB is on: the directory would vanish with the pod")
+    if s.init_on_startup:
+        problems.append("INIT_ON_STARTUP is on: replicas would race to create the schema (run python -m rba_idp.init as a Job)")
     if s.trust_client_reported_ip:
         problems.append("TRUST_CLIENT_REPORTED_IP is on: a client could claim any address")
     if s.private_ip_is_home:

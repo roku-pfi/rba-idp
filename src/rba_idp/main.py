@@ -61,11 +61,11 @@ from rba_contracts import (
 
 from rba_idp.clients import AuditClient, HttpAuditClient, HttpPolicyClient, PolicyClient
 from rba_idp.config import Settings, get_settings
-from rba_idp.db.session import create_tables, make_engine, make_session_factory
+from rba_idp.db.session import make_engine, make_session_factory
 from rba_idp.geo import configure_geoip
 from rba_idp.simulation import issue_ticket, verify_ticket
 from rba_idp.pdp import HttpPdpClient, PdpClient
-from rba_idp.seed import seed_identity
+from rba_idp.init import initialise
 from rba_idp.services.admin import (
     ADMIN_READ,
     ADMIN_WRITE,
@@ -124,10 +124,9 @@ def create_app(
         geo = configure_geoip(settings.geoip_country_db, settings.geoip_asn_db)
         logger.info("GeoIP: %s", "DB-IP Lite loaded" if geo.loaded else "TEST-NET table only")
         engine = make_engine(settings.database_url, memory=settings.use_memory_db)
-        create_tables(engine)
+        if settings.init_on_startup:
+            initialise(settings, engine)
         session_factory = make_session_factory(engine)
-        with session_factory() as session:
-            seed_identity(session, settings)
         pdp = pdp_client or HttpPdpClient(
             settings.pdp_base_url,
             timeout=settings.pdp_timeout_seconds,
