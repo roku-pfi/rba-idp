@@ -72,6 +72,9 @@ class Application(Base):
     __tablename__ = "applications"
 
     application_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # The public, opaque id used in login URLs (rba_idp.client_ids). Nullable
+    # only so a kept database can gain the column; init fills every row.
+    client_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     tenant_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("tenants.tenant_id"), nullable=False, index=True
     )

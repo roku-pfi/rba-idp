@@ -482,6 +482,7 @@ body {
   @include type-style('heading-04');
 }
 .rk-app-name { @include type-style('heading-compact-02'); }
+.rk-client-id { display: flex; align-items: center; gap: 0.25rem; @include type-style('helper-text-01'); color: var(--cds-text-secondary); .cds--copy-btn { width: 1.5rem; height: 1.5rem; min-height: 0; } }
 .rk-app-foot { display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; .cds--tag { margin: 0; } }
 
 // ---------------------------------------------------------------- organisations

@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from rba_idp.client_ids import SEEDED as SEEDED_CLIENT_IDS
+from rba_idp.client_ids import new_client_id
 from rba_idp.config import Settings
 from rba_idp.db.models import (
     Application,
@@ -122,6 +124,7 @@ def _ensure_application(
         session.add(
             Application(
                 application_id=application_id,
+                client_id=SEEDED_CLIENT_IDS.get(application_id) or new_client_id(),
                 tenant_id=tenant_id,
                 name=name,
                 enabled=True,
@@ -129,6 +132,8 @@ def _ensure_application(
             )
         )
         return
+    if row.client_id is None:
+        row.client_id = SEEDED_CLIENT_IDS.get(application_id) or new_client_id()
     if redirect_uri is not None:
         row.redirect_uri = redirect_uri
 
@@ -434,4 +439,8 @@ def seed_identity(session: Session, settings: Settings) -> None:
                 user.groups,
                 is_admin=user.is_admin,
             )
+    # Applications created before client ids existed (consoles, ones an
+    # operator registered on a kept database) get one too.
+    for app in session.scalars(select(Application).where(Application.client_id.is_(None))).all():
+        app.client_id = SEEDED_CLIENT_IDS.get(app.application_id) or new_client_id()
     session.commit()

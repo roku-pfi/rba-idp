@@ -98,6 +98,7 @@ from rba_idp.db.models import (
 from rba_idp.db.session import session_scope
 from rba_idp.passwords import hash_password
 from rba_idp.seed import bootstrap_console
+from rba_idp.client_ids import new_client_id
 from rba_idp.config import Settings
 from rba_idp.services.enrollment import issue_activation_code
 from rba_idp.services.login import LoginService, _as_utc
@@ -165,6 +166,7 @@ def _app_public(row: Application) -> ApplicationPublic:
     return ApplicationPublic(
         tenant_id=row.tenant_id,
         application_id=row.application_id,
+        client_id=row.client_id,
         name=row.name,
         enabled=row.enabled,
         created_at=_as_utc(row.created_at),
@@ -599,6 +601,7 @@ class AdminService:
                 raise HTTPException(status_code=409, detail="application_id already exists")
             row = Application(
                 application_id=body.application_id,
+                client_id=new_client_id(),
                 tenant_id=op.tenant_id,
                 name=body.name,
                 enabled=True,

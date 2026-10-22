@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
 from rba_contracts import (
     Action,
     ActivationCodeResponse,
@@ -61,7 +62,8 @@ from rba_contracts import (
 
 from rba_idp.clients import AuditClient, HttpAuditClient, HttpPolicyClient, PolicyClient
 from rba_idp.config import Settings, get_settings
-from rba_idp.db.session import make_engine, make_session_factory
+from rba_idp.db.models import Application
+from rba_idp.db.session import make_engine, make_session_factory, session_scope
 from rba_idp.geo import configure_geoip
 from rba_idp.simulation import issue_ticket, verify_ticket
 from rba_idp.pdp import HttpPdpClient, PdpClient
@@ -170,9 +172,9 @@ def create_app(
         app.mount("/admin/assets", StaticFiles(directory=str(assets)), name="admin-assets")
 
     def hosted_login(
-        request: Request, application_id: str | None = None, *, console: bool = False
+        request: Request, client_id: str | None = None, *, console: bool = False
     ):
-        boot = hosted_boot(request, application_id, console=console)
+        boot = hosted_boot(request, client_id, console=console)
         return templates.TemplateResponse(
             request=request,
             name="login.html",
@@ -180,14 +182,16 @@ def create_app(
         )
 
     @app.get("/", include_in_schema=False)
-    def home(request: Request, application_id: str | None = None):
+    def home(request: Request, client_id: str | None = None):
         # Without an application there is no tenant to sign in to; the only
         # login that needs none is the operators' console.
-        return hosted_login(request, application_id, console=application_id is None)
+        return hosted_login(request, client_id, console=client_id is None)
 
     @app.get("/login", include_in_schema=False)
-    def login_page(request: Request, application_id: str | None = None):
-        return hosted_login(request, application_id)
+    def login_page(request: Request, client_id: str | None = None):
+        # Applications link here with their public client_id, never their
+        # internal application_id (rba_idp.client_ids).
+        return hosted_login(request, client_id)
 
     @app.get("/console/login", include_in_schema=False)
     def console_login_page(request: Request):
@@ -208,7 +212,7 @@ def create_app(
         response_model_exclude_defaults=True,
     )
     def login(body: LoginRequest, request: Request) -> LoginResponse:
-        body = _observed(body, request)
+        body = _observed(_resolve_client(body, request), request)
         return _run(request, lambda svc: svc.login(body))
 
     @app.post(
@@ -655,6 +659,19 @@ def create_app(
         return HTMLResponse(ADMIN_MISSING_HTML, status_code=503)
 
     return app
+
+
+def _resolve_client(body: LoginRequest, request: Request) -> LoginRequest:
+    """Turn a public client_id into the internal application_id the rest of the
+    login uses. An unknown client_id stays unknown: it is passed on as an
+    application id no application has, and fails like one."""
+    if body.client_id is None:
+        return body
+    with session_scope(request.app.state.session_factory) as session:
+        app_id = session.scalar(
+            select(Application.application_id).where(Application.client_id == body.client_id)
+        )
+    return body.model_copy(update={"application_id": app_id or f"unknown:{body.client_id}", "client_id": None})
 
 
 def _observed(body, request: Request):

@@ -295,7 +295,7 @@
 
   // RokuSec's page says where you are going; the tenant's page is already its
   // own, so it needs no subtitle.
-  const appName = boot.application_name || boot.application_id;
+  const appName = boot.application_name;
   document.getElementById("credentials-lede").textContent =
     boot.look === "tenant" ? "" : boot.console ? "Consola de RokuSec" : `Continuá a ${appName}`;
 
@@ -317,7 +317,7 @@
       };
       // The console login names no application: the server finds the
       // operator's tenant from the email's domain (ADR-0033).
-      if (!boot.console) payload.application_id = boot.application_id;
+      if (!boot.console) payload.client_id = boot.client_id;
       if (boot.redirect_uri) payload.redirect_uri = boot.redirect_uri;
       if (boot.simulation_ticket && !boot.console) payload.simulation_ticket = boot.simulation_ticket;
       // The scanning ring stays up long enough to be read as a step, not a flicker.

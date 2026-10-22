@@ -46,6 +46,8 @@ export type Application = {
   enabled: boolean;
   created_at: string;
   redirect_uri?: string | null;
+  /** Public, opaque id for login URLs (contracts 0.14.0). */
+  client_id?: string | null;
 };
 
 export type Group = {

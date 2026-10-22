@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from rba_contracts import Action, DecisionRecord, EngineMode, Reason, RiskLevel
 
+from rba_idp.client_ids import SEEDED
 from tests.helpers import (
     ADMIN_LOGIN,
     BANK,
@@ -288,10 +289,10 @@ def test_the_login_looks_like_where_you_are_going(client: TestClient) -> None:
     console = client.get("/console/login").text
     assert 'data-look="console"' in console
 
-    kaze = client.get("/login?application_id=kaze-portal").text
+    kaze = client.get(f"/login?client_id={SEEDED['kaze-portal']}").text
     assert 'data-look="rokusec"' in kaze
 
-    bank = client.get("/login?application_id=roku-bank-web").text
+    bank = client.get(f"/login?client_id={SEEDED['roku-bank-web']}").text
     assert 'data-look="tenant"' in bank
     assert "--t-primary:" in bank
     assert "Protegido por RokuSec" in bank

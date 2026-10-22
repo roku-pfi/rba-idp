@@ -1,4 +1,4 @@
-import { Button, InlineLoading, Modal, OverflowMenu, OverflowMenuItem, Stack, Tag, TextInput } from "@carbon/react";
+import { Button, CopyButton, InlineLoading, Modal, OverflowMenu, OverflowMenuItem, Stack, Tag, TextInput } from "@carbon/react";
 import { Add } from "@carbon/icons-react";
 import { FormEvent, useState } from "react";
 import { api, type Application } from "../api";
@@ -50,7 +50,7 @@ function AppForm({ app, open, onClose, onSaved }: { app?: Application; open: boo
                 id="a-id"
                 name="application_id"
                 labelText="ID"
-                helperText="Lo que la aplicación manda al pedir el inicio de sesión. No se puede cambiar."
+                helperText="Identificador interno, para roles y eventos. No se puede cambiar. El client ID público se genera solo."
                 placeholder="mi-app-web"
                 required
               />
@@ -119,7 +119,18 @@ export function Apps() {
                 )}
               </div>
               <div className="rk-app-name">{app.name}</div>
-              <div className="rk-secondary rk-mono">{app.application_id}</div>
+              {app.client_id ? (
+                <div className="rk-client-id">
+                  <Hint text="Lo que la aplicación pone en el enlace de inicio de sesión. Es público.">
+                    <span className="rk-mono">{app.client_id}</span>
+                  </Hint>
+                  <CopyButton
+                    iconDescription="Copiar client ID"
+                    feedback="Copiado"
+                    onClick={() => void navigator.clipboard.writeText(app.client_id ?? "")}
+                  />
+                </div>
+              ) : null}
               <div className="rk-app-foot">
                 <Tag size="sm" type={app.enabled ? "green" : "gray"}>
                   {app.enabled ? "Activa" : "Deshabilitada"}

@@ -7,7 +7,10 @@ import re
 
 from fastapi.testclient import TestClient
 
+from rba_idp.client_ids import SEEDED
 from tests.helpers import LOGIN
+
+BANK_CLIENT = SEEDED["roku-bank-web"]
 
 BOOT_RE = re.compile(
     r'<script type="application/json" id="boot">(.*?)</script>',
@@ -22,7 +25,7 @@ def _boot(html: str) -> dict:
 
 
 def test_hosted_login_page(client: TestClient) -> None:
-    resp = client.get("/login", params={"application_id": "roku-bank-web"})
+    resp = client.get("/login", params={"client_id": BANK_CLIENT})
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     html = resp.text
@@ -30,7 +33,9 @@ def test_hosted_login_page(client: TestClient) -> None:
     assert 'id="panel-denied"' in html
     assert "/static/login.js" in html
     boot = _boot(html)
-    assert boot["application_id"] == "roku-bank-web"
+    assert boot["client_id"] == BANK_CLIENT
+    # The internal id never reaches the browser.
+    assert "roku-bank-web" not in html
     assert boot["application_name"] == "Roku Bank"
     assert boot["tenant_name"] == "Roku Bank"
     assert boot["console"] is False
@@ -45,15 +50,15 @@ def test_root_without_an_application_is_the_console_login(client: TestClient) ->
     assert 'id="form-login"' in resp.text
     boot = _boot(resp.text)
     assert boot["console"] is True
-    assert boot["application_id"] is None
+    assert boot["client_id"] is None
     assert boot["unknown_application"] is False
 
 
 def test_hosted_login_unknown_application(client: TestClient) -> None:
-    resp = client.get("/login", params={"application_id": "not-a-registered-app"})
+    resp = client.get("/login", params={"client_id": "rk_notARegisteredApp"})
     assert resp.status_code == 200
     boot = _boot(resp.text)
-    assert boot["application_id"] == "not-a-registered-app"
+    assert boot["client_id"] is None
     assert boot["unknown_application"] is True
     assert boot["application_name"] is None
     assert 'id="panel-unknown"' in resp.text
@@ -134,7 +139,7 @@ def test_static_assets_are_versioned_and_revalidated(client: TestClient) -> None
     """A phone ran an old cached script against a new page; never again."""
     import re as _re
 
-    for path in ("/login?application_id=roku-bank-web", "/activate"):
+    for path in (f"/login?client_id={BANK_CLIENT}", "/activate"):
         html = client.get(path).text
         refs = _re.findall(r'/static/[\w.-]+\?v=([0-9a-f]{12})"', html)
         assert refs and len(set(refs)) == 1, path
@@ -143,3 +148,29 @@ def test_static_assets_are_versioned_and_revalidated(client: TestClient) -> None
     assert resp.headers["cache-control"] == "no-cache"
     again = client.get("/static/login.js", headers={"if-none-match": resp.headers["etag"]})
     assert again.status_code == 304
+
+
+def test_an_internal_application_id_in_the_url_is_not_a_login(client: TestClient) -> None:
+    """Applications link with their public client_id; the internal id names
+    nothing in a URL, so it cannot be guessed from how a tenant names apps."""
+    boot = _boot(client.get("/login", params={"client_id": "roku-bank-web"}).text)
+    assert boot["unknown_application"] is True
+
+
+def test_a_login_by_client_id_is_the_same_login(client: TestClient) -> None:
+    body = {key: value for key, value in LOGIN.items() if key != "application_id"}
+    by_client = client.post("/login", json={**body, "client_id": BANK_CLIENT})
+    assert by_client.status_code == 200
+    assert by_client.json()["outcome"] in {"AUTHENTICATED", "MFA_REQUIRED"}
+    unknown = client.post("/login", json={**body, "client_id": "rk_doesNotExist0000"})
+    assert unknown.status_code == 400  # unknown application, like any unknown id
+    both = client.post("/login", json={**body, "client_id": BANK_CLIENT, "application_id": "roku-bank-web"})
+    assert both.status_code == 422
+
+
+def test_every_application_has_a_client_id(client: TestClient) -> None:
+    from rba_idp.db.models import Application
+
+    with client.app.state.session_factory() as session:
+        apps = session.query(Application).all()
+    assert apps and all(app.client_id and app.client_id.startswith("rk_") for app in apps)

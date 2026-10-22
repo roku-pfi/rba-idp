@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
+
 import ipaddress
 
 from fastapi import Request
@@ -65,7 +67,7 @@ def client_ip(request: Request, settings: Settings) -> str:
 
 def hosted_boot(
     request: Request,
-    application_id: str | None,
+    client_id: str | None,
     *,
     console: bool = False,
 ) -> dict:
@@ -75,7 +77,8 @@ def hosted_boot(
     that tenant's name. The console login names nothing (ADR-0033): which
     tenant the operator belongs to is decided by the server from the email.
     """
-    app_id = (application_id or "").strip()
+    client = (client_id or "").strip()
+    app_id = ""
     name: str | None = None
     tenant_name: str | None = None
     unknown = not console
@@ -84,11 +87,12 @@ def hosted_boot(
     # like the console; an application's follows its tenant's branding.
     look = "console" if console else "rokusec"
     branding: dict | None = None
-    if not console and app_id:
+    if not console and client:
         factory = request.app.state.session_factory
         with session_scope(factory) as session:
-            row = session.get(Application, app_id)
+            row = session.scalar(select(Application).where(Application.client_id == client))
             if row is not None and row.enabled:
+                app_id = row.application_id
                 tenant = session.get(Tenant, row.tenant_id)
                 name = row.name
                 tenant_name = tenant.display_name if tenant is not None else None
@@ -124,7 +128,8 @@ def hosted_boot(
     next_path = _safe_next(request.query_params.get("next"))
     return {
         "console": console,
-        "application_id": None if console else app_id,
+        # The page knows the application by its public id only.
+        "client_id": None if console or unknown else client,
         "application_name": "Consola RokuSec" if console else name,
         "tenant_name": tenant_name,
         "unknown_application": unknown,
