@@ -297,3 +297,20 @@ def test_the_login_looks_like_where_you_are_going(client: TestClient) -> None:
     assert "--t-primary:" in bank
     assert "Protegido por RokuSec" in bank
     assert "Protegido por RokuSec" not in kaze
+
+
+def test_every_static_file_ships_in_the_package() -> None:
+    """Static files are package data. A folder missing from pyproject's list
+    works from the source tree and 404s in the image (it happened to brand/)."""
+    import tomllib
+    from fnmatch import fnmatch
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    patterns = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["setuptools"]["package-data"]["rba_idp"]
+    package = root / "src" / "rba_idp"
+    web = [p for p in (package / "web").rglob("*") if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".py"]
+    unshipped = [
+        str(p.relative_to(package)) for p in web if not any(fnmatch(str(p.relative_to(package)), pat) and "/" not in str(p.relative_to(package))[len(pat.rstrip("*")):] for pat in patterns)
+    ]
+    assert unshipped == []
