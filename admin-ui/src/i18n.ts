@@ -93,6 +93,9 @@ const SIGNAL_LABEL: Record<string, string> = {
   os: "Sistema operativo",
   browser: "Navegador",
   hour: "Hora del día",
+  // freeman-0.4.0 (ADR-0043): one signal per hierarchy.
+  network: "Red y ubicación",
+  agent: "Dispositivo y navegador",
   failed_logins_last_24h: "Intentos fallidos (24 h)",
   user_login_count: "Historial del usuario",
   system: "Sistema",
@@ -113,6 +116,19 @@ const CODE_LABEL: Record<string, string> = {
   fallback: "decisión de respaldo",
 };
 
+/** freeman-0.4.0's detail: how far the user's history reaches into the login. */
+const DEPTH_LABEL: Record<string, string> = {
+  "new country": "país nuevo",
+  "new network in a familiar country": "red nueva en un país habitual",
+  "new IP address in a familiar network": "IP nueva en una red habitual",
+  "familiar IP address": "IP habitual",
+  "new device type": "tipo de dispositivo nuevo",
+  "new operating system on a familiar device type": "sistema nuevo en un dispositivo habitual",
+  "new browser on a familiar device and system": "navegador nuevo en un dispositivo habitual",
+  "familiar device, system and browser": "dispositivo, sistema y navegador habituales",
+  "no history yet": "sin historial todavía",
+};
+
 export const label = (table: Record<string, string>, key: string) => table[key] ?? key;
 
 export function signalLabel(signal: string): string {
@@ -127,7 +143,10 @@ export function reasonText(reason: Reason): { text: string; title: string } {
   // The model's per-signal reasons read "País: nuevo para este usuario"; rule
   // reasons already say what they are about.
   const perSignal = reason.code.startsWith("signal_");
-  const text = perSignal ? `${signalLabel(reason.signal)}: ${what}` : what[0].toUpperCase() + what.slice(1);
+  const depth = reason.detail ? DEPTH_LABEL[reason.detail] : undefined;
+  const text = perSignal
+    ? `${signalLabel(reason.signal)}: ${depth ?? what}`
+    : what[0].toUpperCase() + what.slice(1);
   return { text, title };
 }
 

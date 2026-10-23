@@ -323,4 +323,5 @@ def test_the_effectiveness_numbers_are_served_to_operators(client: TestClient) -
     assert client.get("/admin/api/effectiveness").status_code == 401
     body = client.get("/admin/api/effectiveness", headers=_auth(_admin_token(client))).json()
     assert body["meta"]["ato"] == 38
-    assert body["policies"]["adaptive_default"]["ato_stopped"]["k"] == 32
+    # freeman-0.4.0 (finding 2026-10-23-hierarchical): 31/38 at 21% friction.
+    assert body["policies"]["adaptive_default"]["ato_stopped"]["k"] == 31
