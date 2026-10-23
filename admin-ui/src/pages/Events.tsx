@@ -38,6 +38,7 @@ import {
   Misuse,
   Renew,
   RuleTest,
+  Time,
   UserIdentification,
   View,
 } from "@carbon/icons-react";
@@ -106,6 +107,24 @@ function useLookup(): Lookup {
   }, [users, apps]);
 }
 
+const STEP_UP = new Set(["REQUIRE_MFA", "REAUTHENTICATE"]);
+
+/** Whether a step-up was passed (RF-11). Recent ones may still be in progress. */
+function StepUp({ item }: { item: Decision }) {
+  if (!STEP_UP.has(item.enforced_action)) return null;
+  return item.step_up_passed_at ? (
+    <span className="rk-secondary rk-status">
+      <CheckmarkOutline size={12} />
+      Passkey completada
+    </span>
+  ) : (
+    <span className="rk-secondary rk-status">
+      <Time size={12} />
+      <Hint text="Nadie pasó la passkey de este inicio: lo abandonó, o era alguien sin ella.">Sin completar</Hint>
+    </span>
+  );
+}
+
 function Outcome({ item }: { item: Decision }) {
   const Icon = OUTCOME_ICON[item.enforced_action] ?? Checkmark;
   const monitored = item.action !== item.enforced_action;
@@ -123,6 +142,7 @@ function Outcome({ item }: { item: Decision }) {
           El motor: {label(OUTCOME_LABEL, item.action).toLowerCase()}
         </span>
       )}
+      <StepUp item={item} />
       {rule && (
         // A BLOCK next to a LOW score is a rule, not the score (ADR-0040).
         <span className="rk-secondary rk-status">
@@ -288,6 +308,12 @@ export function Explanation({ item }: { item: Decision }) {
             <dd className="rk-mono">{item.action}</dd>
             <dt>Aplicado</dt>
             <dd className="rk-mono">{item.enforced_action}</dd>
+            {STEP_UP.has(item.enforced_action) && (
+              <>
+                <dt>Passkey</dt>
+                <dd>{item.step_up_passed_at ? `completada ${fmt.ago(item.step_up_passed_at)}` : "sin completar"}</dd>
+              </>
+            )}
             <dt>Modelo</dt>
             <dd className="rk-mono">{item.model_version}</dd>
             <dt>Política</dt>

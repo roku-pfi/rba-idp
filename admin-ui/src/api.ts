@@ -115,6 +115,8 @@ export type Decision = {
   login?: LoginSnapshot | null;
   /** Which signals the user had used before, as the model saw it. */
   features?: Features | null;
+  /** When the user passed the step-up (contracts 0.17.0, RF-11); null if not. */
+  step_up_passed_at?: string | null;
 };
 
 export type LoginSnapshot = {

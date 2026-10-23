@@ -62,6 +62,7 @@ from rba_contracts import (
     TenantPublic,
 )
 
+from rba_idp import metrics
 from rba_idp.clients import AuditClient, HttpAuditClient, HttpPolicyClient, PolicyClient
 from rba_idp.config import Settings, get_settings
 from rba_idp.db.models import Application
@@ -116,6 +117,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logging.basicConfig(level=logging.INFO)
+        metrics.serve(settings.metrics_port)
         geo = configure_geoip(settings.geoip_country_db, settings.geoip_asn_db)
         logger.info("GeoIP: %s", "DB-IP Lite loaded" if geo.loaded else "TEST-NET table only")
         engine = make_engine(settings.database_url, memory=settings.use_memory_db)
@@ -215,7 +217,9 @@ def create_app(
     )
     def login(body: LoginRequest, request: Request) -> LoginResponse:
         body = _observed(_resolve_client(body, request), request)
-        return _run(request, lambda svc: svc.login(body))
+        result = _run(request, lambda svc: svc.login(body))
+        metrics.observe_login("app", result.outcome)
+        return result
 
     @app.post(
         "/console/login",
@@ -225,7 +229,9 @@ def create_app(
     )
     def console_login(body: ConsoleLoginRequest, request: Request) -> LoginResponse:
         body = _observed(body, request)
-        return _run(request, lambda svc: svc.console_login(body))
+        result = _run(request, lambda svc: svc.console_login(body))
+        metrics.observe_login("console", result.outcome)
+        return result
 
     @app.post(
         "/mfa/verify",
@@ -234,7 +240,9 @@ def create_app(
         response_model_exclude_defaults=True,
     )
     def verify_mfa(body: MfaVerifyRequest, request: Request) -> LoginResponse:
-        return _run(request, lambda svc: svc.verify_mfa(body))
+        result = _run(request, lambda svc: svc.verify_mfa(body))
+        metrics.observe_step_up("otp", result.outcome)
+        return result
 
     @app.post(
         "/mfa/webauthn/options",
@@ -255,7 +263,9 @@ def create_app(
     def mfa_webauthn_verify(
         body: MfaWebAuthnVerifyRequest, request: Request
     ) -> LoginResponse:
-        return _run(request, lambda svc: svc.verify_webauthn(body))
+        result = _run(request, lambda svc: svc.verify_webauthn(body))
+        metrics.observe_step_up("passkey", result.outcome)
+        return result
 
     # ---------------------------------------------------------------- enrollment (ADR-0037)
 

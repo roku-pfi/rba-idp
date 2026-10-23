@@ -47,6 +47,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from webauthn.helpers.exceptions import WebAuthnException
 
+from rba_idp import metrics
 from rba_idp.authz import effective_permissions, has_application_access
 from rba_idp.config import Settings
 from rba_idp.db.models import (
@@ -293,6 +294,7 @@ class LoginService:
         try:
             decision = self._pdp.evaluate(request)
         except PdpUnavailable as exc:
+            metrics.PDP_UNAVAILABLE.inc()
             logger.warning(
                 "PDP unavailable, degrading to %s for tenant_id=%s user_id=%s: %s",
                 self._settings.pdp_unavailable_action,
