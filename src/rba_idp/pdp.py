@@ -1,11 +1,11 @@
-"""PDP client: POST /risk/evaluate. Identity never leaves rba-idp."""
+"""PDP client: POST /risk/evaluate and /risk/confirm. Identity never leaves rba-idp."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
 import httpx
-from rba_contracts import RiskEvaluateRequest, RiskEvaluateResponse
+from rba_contracts import LoginConfirmRequest, RiskEvaluateRequest, RiskEvaluateResponse
 
 
 class PdpUnavailable(Exception):
@@ -14,6 +14,8 @@ class PdpUnavailable(Exception):
 
 class PdpClient(Protocol):
     def evaluate(self, request: RiskEvaluateRequest) -> RiskEvaluateResponse: ...
+
+    def confirm(self, request: LoginConfirmRequest) -> None: ...
 
 
 class HttpPdpClient:
@@ -44,6 +46,15 @@ class HttpPdpClient:
             return RiskEvaluateResponse.model_validate(response.json())
         except Exception as exc:
             raise PdpUnavailable("invalid PDP response") from exc
+
+    def confirm(self, request: LoginConfirmRequest) -> None:
+        """The step-up of a decision was passed (ADR-0042)."""
+        try:
+            self._client.post(
+                "/risk/confirm", json=request.model_dump(mode="json")
+            ).raise_for_status()
+        except httpx.HTTPError as exc:
+            raise PdpUnavailable(str(exc)) from exc
 
     def close(self) -> None:
         if self._owns_client:

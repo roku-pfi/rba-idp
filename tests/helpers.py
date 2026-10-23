@@ -11,6 +11,7 @@ from rba_contracts import (
     DecisionListResponse,
     DecisionRecord,
     EngineMode,
+    LoginConfirmRequest,
     Reason,
     RiskEvaluateRequest,
     RiskEvaluateResponse,
@@ -82,6 +83,7 @@ class StubPdp:
         self.risk_level = risk_level
         self.reasons = reasons if reasons is not None else [REASON]
         self.calls: list[RiskEvaluateRequest] = []
+        self.confirmed: list[LoginConfirmRequest] = []
         # What the PDP says to enforce; defaults to the verdict (ACTIVE).
         self.enforced: Action | None = None
         self.engine_mode = EngineMode.ACTIVE
@@ -105,8 +107,15 @@ class StubPdp:
         )
 
 
+    def confirm(self, request: LoginConfirmRequest) -> None:
+        self.confirmed.append(request)
+
+
 class FailingPdp:
     def evaluate(self, request: RiskEvaluateRequest) -> RiskEvaluateResponse:
+        raise PdpUnavailable("connection refused")
+
+    def confirm(self, request: LoginConfirmRequest) -> None:
         raise PdpUnavailable("connection refused")
 
 

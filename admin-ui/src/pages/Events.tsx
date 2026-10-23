@@ -73,6 +73,20 @@ const OUTCOME_ICON: Record<string, typeof Checkmark> = {
   BLOCK: Misuse,
 };
 
+// The action each rule raises to (rba-decision-service services/escalate).
+const RULE_FLOOR: Record<string, string> = {
+  failed_login_lockout: "BLOCK",
+  failed_login_burst: "REAUTHENTICATE",
+  impossible_travel: "REQUIRE_MFA",
+  vpn_or_hosting: "REQUIRE_MFA",
+  supervised_second_opinion: "REQUIRE_MFA",
+};
+
+/** The rule that set the engine's verdict, if the score alone did not (ADR-0040). */
+function decidingRule(item: Decision) {
+  return (item.reasons ?? []).find((reason) => RULE_FLOOR[reason.code] === item.action);
+}
+
 const REFRESH_MS = 15000;
 
 type Lookup = { email: (userId: string) => string; app: (appId: string) => string };
@@ -93,6 +107,7 @@ function useLookup(): Lookup {
 function Outcome({ item }: { item: Decision }) {
   const Icon = OUTCOME_ICON[item.enforced_action] ?? Checkmark;
   const monitored = item.action !== item.enforced_action;
+  const rule = decidingRule(item);
   return (
     <span className="rk-cell-text">
       <span className={`rk-status rk-outcome rk-outcome--${item.enforced_action}`}>
@@ -104,6 +119,13 @@ function Outcome({ item }: { item: Decision }) {
         <span className="rk-secondary rk-status">
           <View size={12} />
           El motor: {label(OUTCOME_LABEL, item.action).toLowerCase()}
+        </span>
+      )}
+      {rule && (
+        // A BLOCK next to a LOW score is a rule, not the score (ADR-0040).
+        <span className="rk-secondary rk-status">
+          <RuleTest size={12} />
+          <Hint text={reasonDetail(rule.code, rule.detail) ?? reasonText(rule).text}>Por regla</Hint>
         </span>
       )}
     </span>

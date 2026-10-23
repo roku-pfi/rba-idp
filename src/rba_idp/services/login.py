@@ -24,6 +24,7 @@ from rba_contracts import (
     CallbackTokenResponse,
     ConsoleLoginRequest,
     EngineMode,
+    LoginConfirmRequest,
     LoginOutcome,
     LoginRequest,
     LoginResponse,
@@ -398,6 +399,25 @@ class LoginService:
         except Exception:
             logger.warning("failed-login report dropped for user_id=%s", user_id)
 
+    def _confirm_step_up(self, result: LoginResponse, tenant_id: str | None) -> None:
+        """Tell the PDP the step-up was passed, so the profile learns this login.
+
+        ADR-0042: the profile learns a challenged login only once it is
+        completed. Best effort, after the session is committed: the user is
+        already in, and a missed confirmation only means one login is not
+        learned, which the next usual login makes up for.
+        """
+        if (
+            result.outcome is not LoginOutcome.AUTHENTICATED
+            or result.event_id is None
+            or tenant_id is None
+        ):
+            return
+        try:
+            self._pdp.confirm(LoginConfirmRequest(event_id=result.event_id, tenant_id=tenant_id))
+        except Exception:
+            logger.warning("step-up confirmation dropped for event_id=%s", result.event_id)
+
     def verify_mfa(self, body: MfaVerifyRequest) -> LoginResponse:
         if not self._settings.mock_otp_enabled:
             # A fixed code that passes any step-up must not exist in a deployment.
@@ -407,9 +427,13 @@ class LoginService:
             challenge = self._open_challenge(session, body.challenge_id, now)
             if not otp_matches(body.code, self._settings.mock_otp_code):
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
-            return self._finish_challenge(
+            result = self._finish_challenge(
                 session, challenge, now, redirect_uri=body.redirect_uri
             )
+            app = session.get(Application, challenge.application_id)
+            tenant_id = app.tenant_id if app is not None else None
+        self._confirm_step_up(result, tenant_id)
+        return result
 
     def webauthn_options(
         self, body: MfaWebAuthnOptionsRequest
@@ -468,9 +492,13 @@ class LoginService:
                 stored.sign_count = verified.new_sign_count
             except (WebAuthnException, ValueError, TypeError, KeyError):
                 return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
-            return self._finish_challenge(
+            result = self._finish_challenge(
                 session, challenge, now, redirect_uri=body.redirect_uri
             )
+            app = session.get(Application, challenge.application_id)
+            tenant_id = app.tenant_id if app is not None else None
+        self._confirm_step_up(result, tenant_id)
+        return result
 
     def exchange_code(self, body: CallbackTokenRequest) -> CallbackTokenResponse:
         now = datetime.now(timezone.utc)

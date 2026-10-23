@@ -276,3 +276,36 @@ def test_ungrouped_user_cannot_log_in(client: TestClient, pdp: StubPdp) -> None:
     )
     assert resp.json()["outcome"] == LoginOutcome.ACCESS_DENIED.value
     assert len(pdp.calls) == before
+
+
+def test_a_passed_step_up_is_confirmed_to_the_pdp() -> None:
+    """ADR-0042: the profile learns a challenged login only once it is passed."""
+    pdp = StubPdp(action=Action.REQUIRE_MFA, risk_level=RiskLevel.HIGH)
+    with client_for(pdp) as client:
+        body = client.post("/login", json=LOGIN).json()
+        assert body["outcome"] == LoginOutcome.MFA_REQUIRED.value
+        assert pdp.confirmed == []  # an open challenge confirms nothing
+
+        client.post("/mfa/verify", json={"challenge_id": body["challenge_id"], "code": "999999"})
+        assert pdp.confirmed == []  # nor does a wrong code
+
+        verify = client.post("/mfa/verify", json={"challenge_id": body["challenge_id"], "code": MOCK_OTP})
+    assert verify.json()["outcome"] == LoginOutcome.AUTHENTICATED.value
+    [confirmed] = pdp.confirmed
+    assert (str(confirmed.event_id), confirmed.tenant_id) == (body["event_id"], "roku-bank")
+
+
+def test_an_allowed_login_needs_no_confirmation(client: TestClient, pdp: StubPdp) -> None:
+    assert client.post("/login", json=LOGIN).json()["outcome"] == LoginOutcome.AUTHENTICATED.value
+    assert pdp.confirmed == []
+
+
+def test_a_lost_confirmation_does_not_cost_the_login() -> None:
+    class ConfirmFails(StubPdp):
+        def confirm(self, request):
+            raise RuntimeError("PDP gone between the two calls")
+
+    with client_for(ConfirmFails(action=Action.REQUIRE_MFA)) as client:
+        body = client.post("/login", json=LOGIN).json()
+        verify = client.post("/mfa/verify", json={"challenge_id": body["challenge_id"], "code": MOCK_OTP})
+    assert verify.json()["outcome"] == LoginOutcome.AUTHENTICATED.value
