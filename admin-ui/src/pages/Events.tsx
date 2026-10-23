@@ -76,6 +76,8 @@ const OUTCOME_ICON: Record<string, typeof Checkmark> = {
 // The action each rule raises to (rba-decision-service services/escalate).
 const RULE_FLOOR: Record<string, string> = {
   failed_login_lockout: "BLOCK",
+  source_blocked: "BLOCK",
+  account_cooldown: "BLOCK",
   failed_login_burst: "REAUTHENTICATE",
   impossible_travel: "REQUIRE_MFA",
   vpn_or_hosting: "REQUIRE_MFA",

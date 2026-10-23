@@ -106,8 +106,10 @@ const CODE_LABEL: Record<string, string> = {
   signal_novel: "nuevo para este usuario",
   signal_familiar: "habitual para este usuario",
   signal_neutral: "sin peso en la decisión",
-  failed_login_burst: "ráfaga de contraseñas incorrectas",
+  failed_login_burst: "contraseñas incorrectas desde lugares desconocidos",
   failed_login_lockout: "intentos fallidos sostenidos: cuenta bloqueada",
+  source_blocked: "IP bloqueada por intentos fallidos",
+  account_cooldown: "cuenta en pausa por contraseñas incorrectas propias",
   supervised_second_opinion: "el modelo supervisado lo marcó como ataque",
   low_history: "pocos inicios previos, el perfil todavía aprende",
   vpn_or_hosting: "VPN o red de hosting; no se evalúa el viaje",
@@ -165,6 +167,15 @@ export function reasonDetail(code: string, detail?: string | null): string | nul
   }
   if (code === "vpn_or_hosting" && (m = detail.match(/ASN (\S+)/))) {
     return `La red AS${m[1].replace(/^AS/, "")} es de VPN o hosting; por eso no se evalúa el viaje.`;
+  }
+  if (code === "source_blocked" && (m = detail.match(/passed (\d+) failed logins in (\d+) min; blocked for (\d+) min/))) {
+    return `Esta IP superó ${n(m[1])} intentos fallidos en ${n(m[2])} min: queda bloqueada ${n(m[3])} min, aun con la contraseña correcta.`;
+  }
+  if (code === "account_cooldown" && (m = detail.match(/^(\d+) wrong passwords.*paused for (\d+) min/))) {
+    return `${n(m[1])} contraseñas incorrectas desde una red habitual del usuario: la cuenta queda en pausa ${n(m[2])} min.`;
+  }
+  if (code === "failed_login_burst" && (m = detail.match(/^(\d+) failed.*unfamiliar contexts \(threshold (\d+)/))) {
+    return `${n(m[1])} contraseñas incorrectas en 24 h desde lugares que el usuario no usa (el umbral es ${n(m[2])}).`;
   }
   if ((code === "failed_login_burst" || code === "failed_login_lockout") && (m = detail.match(/^(\d+) failed.*threshold (\d+)/))) {
     return `${n(m[1])} contraseñas incorrectas en 24 h (el umbral es ${n(m[2])}).`;
