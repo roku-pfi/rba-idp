@@ -72,6 +72,7 @@ from rba_idp.simulation import issue_ticket, verify_ticket
 from rba_idp.pdp import HttpPdpClient, PdpClient
 from rba_idp.init import initialise
 from rba_idp.services.admin import (
+    ActiveAlert,
     ADMIN_READ,
     ADMIN_WRITE,
     DECISIONS_READ,
@@ -642,6 +643,13 @@ def create_app(
     ) -> DecisionRecord:
         service, op = _op(request, authorization, tenant, DECISIONS_READ)
         return service.get_decision(op, event_id)
+
+    @app.get("/admin/api/alerts", response_model=list[ActiveAlert])
+    def admin_alerts(
+        request: Request, authorization: Auth = None, tenant: ActingTenant = None
+    ) -> list[ActiveAlert]:
+        service, op = _op(request, authorization, tenant)
+        return service.alerts(op)
 
     @app.get("/admin/api/policy", response_model=TenantPolicy)
     def admin_get_policy(

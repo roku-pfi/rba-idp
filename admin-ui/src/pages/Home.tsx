@@ -1,4 +1,4 @@
-import { ClickableTile, InlineLoading, Link } from "@carbon/react";
+import { ClickableTile, InlineLoading, InlineNotification, Link } from "@carbon/react";
 import { ArrowRight, CheckmarkFilled, CircleDash, View, WarningAltFilled } from "@carbon/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AdminUser, type Application, type Decision } from "../api";
@@ -201,6 +201,16 @@ function go(page: "events" | "users" | "policy", id?: string) {
   };
 }
 
+type Alert = { name: string; severity: string; summary: string; since?: string | null };
+
+// Never red (ADR-0030): critical and warning share the warning style;
+// critical ones are listed first.
+const ALERT_KIND: Record<string, "warning" | "info"> = {
+  critical: "warning",
+  warning: "warning",
+  info: "info",
+};
+
 export function Home() {
   const { tenant } = useConsole();
   const [items, , loading] = useLoad(
@@ -210,6 +220,7 @@ export function Home() {
   const [users] = useLoad(() => api<AdminUser[]>("/admin/api/users").catch(() => []), [] as AdminUser[]);
   const [apps] = useLoad(() => api<Application[]>("/admin/api/applications").catch(() => []), [] as Application[]);
   const [policy] = useLoad(() => api<Policy>("/admin/api/policy").catch(() => null), null as Policy | null);
+  const [alerts] = useLoad(() => api<Alert[]>("/admin/api/alerts").catch(() => []), [] as Alert[]);
 
   const emails = useMemo(() => new Map(users.map((u) => [u.user_id, u.email])), [users]);
   const appNames = useMemo(() => new Map(apps.map((a) => [a.application_id, a.name])), [apps]);
@@ -238,6 +249,19 @@ export function Home() {
         sub={`${tenant?.name ?? "Tu organización"} · últimos 7 días`}
         info="Lo que pasó en los inicios de sesión de tu organización esta semana y el estado de la protección."
       />
+
+      {alerts.map((alert) => (
+        // RF-16: alarms evaluated by Prometheus, this tenant's and the platform's.
+        <InlineNotification
+          key={alert.name}
+          kind={ALERT_KIND[alert.severity] ?? "info"}
+          lowContrast
+          hideCloseButton
+          title={alert.summary || alert.name}
+          subtitle={alert.since ? `desde ${fmt.ago(alert.since)}` : undefined}
+          className="rk-alert"
+        />
+      ))}
 
       {items === null ? (
         <p className="rk-secondary rk-metrics-note">Eventos no disponibles.</p>

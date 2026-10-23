@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     pdp_timeout_seconds: float = 2.0
     # Prometheus listener, inside the cluster only (RF-20); 0 turns it off.
     metrics_port: int = 0
+    # Where the console reads firing alarms from (RF-16); empty: no alarms.
+    prometheus_url: str = ""
     # Report wrong-password attempts to the PDP so `failed_logins_last_24h` is
     # real (ADR-0027). Off = the feature is permanently 0 in production.
     report_failed_logins: bool = True

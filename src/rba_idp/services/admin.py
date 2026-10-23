@@ -18,11 +18,15 @@ cross-tenant test.
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import httpx
 from fastapi import HTTPException
+from pydantic import BaseModel
 from rba_contracts import (
     Action,
     ActivationCodeResponse,
@@ -103,6 +107,18 @@ from rba_idp.config import Settings
 from rba_idp.services.enrollment import issue_activation_code
 from rba_idp.services.login import LoginService, _as_utc
 from rba_idp.tenancy import TenantPolicyCache
+
+
+logger = logging.getLogger(__name__)
+
+
+class ActiveAlert(BaseModel):
+    """One firing alarm as the console shows it (RF-16)."""
+
+    name: str
+    severity: str
+    summary: str
+    since: datetime | None = None
 
 TENANT_HEADER = "X-RokuSec-Tenant"
 
@@ -1001,6 +1017,39 @@ class AdminService:
             raise HTTPException(status_code=404, detail="unknown event") from exc
         except ControlPlaneUnavailable as exc:
             raise HTTPException(status_code=503, detail="decision store unavailable") from exc
+
+    # ---------------------------------------------------------------- alarms
+
+    def alerts(self, op: Operator) -> list[ActiveAlert]:
+        """Firing alarms for the operator's tenant, plus platform-wide ones (RF-16).
+
+        Read from Prometheus, which evaluates the rules. Unreachable means no
+        list, not an error page: the console is still usable without it.
+        """
+        if not self._settings.prometheus_url:
+            return []
+        try:
+            resp = httpx.get(f"{self._settings.prometheus_url.rstrip('/')}/api/v1/alerts", timeout=2.0)
+            resp.raise_for_status()
+            raw = resp.json()["data"]["alerts"]
+        except (httpx.HTTPError, KeyError, ValueError):
+            logger.warning("alarms unavailable from %s", self._settings.prometheus_url)
+            return []
+        out = []
+        for alert in raw:
+            labels = alert.get("labels", {})
+            if alert.get("state") != "firing":
+                continue
+            if labels.get("tenant") not in (None, op.tenant_id):
+                continue
+            out.append(ActiveAlert(
+                name=labels.get("alertname", ""),
+                severity=labels.get("severity", "info"),
+                summary=alert.get("annotations", {}).get("summary", ""),
+                since=alert.get("activeAt"),
+            ))
+        order = {"critical": 0, "warning": 1, "info": 2}
+        return sorted(out, key=lambda a: order.get(a.severity, 3))
 
     # ---------------------------------------------------------------- policy
 
