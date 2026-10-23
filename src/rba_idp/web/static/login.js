@@ -88,6 +88,16 @@
       return;
     }
     if (outcome === "BLOCKED") {
+      // The one block that says why (ADR-0045): the person's own wrong
+      // passwords paused the account, and it tells them nothing they did not
+      // just do. Every other block stays non-disclosing (ADR-0023).
+      const paused = (body.reasons || []).some((r) => r.code === "account_cooldown");
+      document.getElementById("blocked-title").textContent = paused
+        ? "Demasiados intentos"
+        : "No pudimos iniciar tu sesión";
+      document.getElementById("blocked-lede").textContent = paused
+        ? "Por seguridad, esperá unos minutos antes de volver a intentar."
+        : "Si creés que es un error, contactá a soporte.";
       show("blocked");
       return;
     }
