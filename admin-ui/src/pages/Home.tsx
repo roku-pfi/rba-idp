@@ -23,7 +23,13 @@ const OUTCOME_COLOR: Record<Outcome, string> = {
 
 type Day = { start: Date; label: string; counts: Record<Outcome, number>; total: number };
 
-function lastDays(items: Decision[]): Day[] {
+type Summary = {
+  hours: { hour: string; counts: Record<string, number> }[];
+  countries: { country: string; count: number }[];
+};
+
+/** The store counts by UTC hour; the days are this browser's. */
+function lastDays(summary: Summary | null): Day[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days: Day[] = [];
@@ -37,12 +43,14 @@ function lastDays(items: Decision[]): Day[] {
       total: 0,
     });
   }
-  for (const item of items) {
-    const at = new Date(item.occurred_at);
+  for (const { hour, counts } of summary?.hours ?? []) {
+    const at = new Date(hour);
     const day = [...days].reverse().find((d) => at >= d.start);
     if (!day) continue;
-    day.counts[item.enforced_action as Outcome] += 1;
-    day.total += 1;
+    for (const [outcome, n] of Object.entries(counts)) {
+      if (outcome in day.counts) day.counts[outcome as Outcome] += n;
+      day.total += n;
+    }
   }
   return days;
 }
@@ -213,7 +221,13 @@ const ALERT_KIND: Record<string, "warning" | "info"> = {
 
 export function Home() {
   const { tenant } = useConsole();
-  const [items, , loading] = useLoad(
+  // Counted by the decision store; the newest 200 records alone were all load
+  // users after one load test.
+  const [summary, , summaryLoading] = useLoad(
+    () => api<Summary>("/admin/api/decisions/summary?days=8").catch(() => null),
+    null as Summary | null,
+  );
+  const [items] = useLoad(
     () => api<{ items: Decision[] }>("/admin/api/decisions?limit=200").then((body) => body.items || []).catch(() => null),
     [] as Decision[] | null,
   );
@@ -224,21 +238,14 @@ export function Home() {
 
   const emails = useMemo(() => new Map(users.map((u) => [u.user_id, u.email])), [users]);
   const appNames = useMemo(() => new Map(apps.map((a) => [a.application_id, a.name])), [apps]);
-  const days = useMemo(() => lastDays(items ?? []), [items]);
+  const days = useMemo(() => lastDays(summary), [summary]);
   const since = days[0].start;
-  const inRange = (items ?? []).filter((item) => new Date(item.occurred_at) >= since);
-  const total = inRange.length;
-  const count = (o: Outcome) => inRange.filter((item) => item.enforced_action === o).length;
-  const attention = inRange.filter((item) => item.enforced_action !== "ALLOW").slice(0, 6);
-  const countries = Object.entries(
-    inRange.reduce<Record<string, number>>((acc, item) => {
-      const code = item.login?.country ?? "??";
-      acc[code] = (acc[code] ?? 0) + 1;
-      return acc;
-    }, {}),
-  )
-    .sort((a, b) => b[1] - a[1])
+  const total = days.reduce((sum, d) => sum + d.total, 0);
+  const count = (o: Outcome) => days.reduce((sum, d) => sum + d.counts[o], 0);
+  const attention = (items ?? [])
+    .filter((item) => new Date(item.occurred_at) >= since && item.enforced_action !== "ALLOW")
     .slice(0, 6);
+  const countries = (summary?.countries ?? []).slice(0, 6).map((c) => [c.country, c.count] as [string, number]);
   const noPasskey = users.filter((u) => u.enabled && u.passkeys === 0).length;
   const engine = policy ? ENGINE[policy.engine_mode] : null;
 
@@ -263,9 +270,9 @@ export function Home() {
         />
       ))}
 
-      {items === null ? (
+      {summary === null && !summaryLoading ? (
         <p className="rk-secondary rk-metrics-note">Eventos no disponibles.</p>
-      ) : loading && total === 0 ? (
+      ) : summaryLoading && total === 0 ? (
         <InlineLoading description="Cargando eventos…" />
       ) : (
         <dl className="rk-metrics">

@@ -238,6 +238,16 @@ def test_admin_decision_browser_includes_reasons() -> None:
         assert got.json()["user_id"] == "usr_rb_martin"
 
 
+def test_admin_summary_is_counted_by_the_store() -> None:
+    with client_for(StubPdp(), audit_client=StubAudit([DECISION])) as client:
+        token = _admin_token(client)
+        body = client.get("/admin/api/decisions/summary", headers=_auth(token)).json()
+        assert (body["total"], body["by_action"]) == (1, {"REQUIRE_MFA": 1})
+    with client_for(StubPdp(), audit_client=FailingAudit()) as client:
+        resp = client.get("/admin/api/decisions/summary", headers=_auth(_admin_token(client)))
+        assert resp.status_code == 503
+
+
 def test_admin_decisions_fail_closed_when_audit_down() -> None:
     with client_for(StubPdp(), audit_client=FailingAudit()) as client:
         token = _admin_token(client)

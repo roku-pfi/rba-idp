@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from rba_contracts import (
+    DecisionSummary,
     Action,
     BasePolicy,
     DecisionListResponse,
@@ -180,12 +181,25 @@ class StubAudit:
                 return row
         raise AuditNotFound(str(event_id))
 
+    def summarize(self, tenant_id: str, days: int = 7) -> DecisionSummary:
+        rows = [row for row in self.items if row.tenant_id == tenant_id]
+        by_action: dict[str, int] = {}
+        for row in rows:
+            by_action[row.enforced_action.value] = by_action.get(row.enforced_action.value, 0) + 1
+        return DecisionSummary(
+            since=datetime.now(timezone.utc), total=len(rows), by_action=by_action,
+            saved_prompts=0, hours=[], countries=[],
+        )
+
 
 class FailingAudit:
     def list_decisions(self, **_kwargs):
         raise ControlPlaneUnavailable("connection refused")
 
     def get_decision(self, tenant_id, event_id):
+        raise ControlPlaneUnavailable("connection refused")
+
+    def summarize(self, tenant_id, days=7):
         raise ControlPlaneUnavailable("connection refused")
 
 

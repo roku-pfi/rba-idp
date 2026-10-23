@@ -28,6 +28,7 @@ import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel
 from rba_contracts import (
+    DecisionSummary,
     Action,
     ActivationCodeResponse,
     AddGroupMemberRequest,
@@ -1015,6 +1016,12 @@ class AdminService:
             return self._audit.get_decision(op.tenant_id, event_id)
         except AuditNotFound as exc:
             raise HTTPException(status_code=404, detail="unknown event") from exc
+        except ControlPlaneUnavailable as exc:
+            raise HTTPException(status_code=503, detail="decision store unavailable") from exc
+
+    def summarize_decisions(self, op: Operator, days: int = 7) -> DecisionSummary:
+        try:
+            return self._audit.summarize(op.tenant_id, days)
         except ControlPlaneUnavailable as exc:
             raise HTTPException(status_code=503, detail="decision store unavailable") from exc
 

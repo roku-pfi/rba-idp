@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from rba_contracts import (
+    DecisionSummary,
     Action,
     ActivationCodeResponse,
     ActivationOptionsRequest,
@@ -636,6 +637,16 @@ def create_app(
         return service.list_decisions(
             op, user_id=user_id, application_id=application_id, action=action, limit=limit
         )
+
+    @app.get("/admin/api/decisions/summary", response_model=DecisionSummary)
+    def admin_summarize_decisions(
+        request: Request,
+        authorization: Auth = None,
+        tenant: ActingTenant = None,
+        days: int = Query(default=7, ge=1, le=31),
+    ) -> DecisionSummary:
+        service, op = _op(request, authorization, tenant, DECISIONS_READ)
+        return service.summarize_decisions(op, days)
 
     @app.get("/admin/api/decisions/{event_id}", response_model=DecisionRecord)
     def admin_get_decision(
