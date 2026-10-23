@@ -369,7 +369,7 @@ class LoginService:
         the threat the project leads with. The returned decision is *discarded*:
         a failed attempt is not an authentication, so there is nothing to enforce.
         The recording is what matters, and it reaches the profile through the
-        normal outbox → profile-service path.
+        normal journal → profile-service path (ADR-0044).
 
         A PDP outage must not turn a wrong password into a 503, so failures here
         are swallowed. That is the opposite of the enforcing call above, which
