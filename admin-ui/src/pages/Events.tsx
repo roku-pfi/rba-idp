@@ -208,6 +208,12 @@ export function Explanation({ item }: { item: Decision }) {
   const strongest = Math.max(0.01, ...reasons.map((reason) => Math.abs(reason.contribution ?? 0)));
   const login = item.login;
   const features = item.features;
+  // RF-02: known or new comes from the engine's reasons; no id, no tag.
+  const deviceSeen = reasons.some((r) => r.signal === "device_id" && r.code === "signal_familiar")
+    ? 1
+    : reasons.some((r) => r.code === "device_new")
+      ? 0
+      : undefined;
   const familiar = (flag: number | undefined) =>
     flag === undefined ? null : flag ? (
       <Tag size="sm" type="green">
@@ -226,6 +232,7 @@ export function Explanation({ item }: { item: Decision }) {
         ["Dispositivo", label(DEVICE_LABEL, login.device_type ?? "—"), features?.device_type_seen_before],
         ["Sistema operativo", login.os ?? "—", features?.os_seen_before],
         ["Navegador", login.browser ?? "—", features?.browser_seen_before],
+        ["Este dispositivo", login.device_id ? <span className="rk-mono" title={login.device_id}>{login.device_id.slice(0, 8)}</span> : "—", deviceSeen],
         ["Hora del día", fmt.time(login.login_timestamp), features?.hour_seen_before],
       ]
     : [];

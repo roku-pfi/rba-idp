@@ -127,6 +127,7 @@ export type LoginSnapshot = {
   device_type?: string | null;
   os?: string | null;
   browser?: string | null;
+  device_id?: string | null;
   login_successful: boolean;
 };
 

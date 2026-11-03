@@ -61,6 +61,7 @@ from rba_idp.db.models import (
     WebAuthnCredential,
 )
 from rba_idp.db.session import session_scope
+from rba_idp.devices import device_id
 from rba_idp.geo import resolve_login_signals, scored_ip
 from rba_idp.passwords import verify_password
 from rba_idp.pdp import PdpClient, PdpUnavailable
@@ -145,6 +146,8 @@ class _Attempt:
     # Console logins answer every failure with INVALID_CREDENTIALS, including
     # "no console role", so the form cannot be used to map tenants or users.
     uniform_failures: bool
+    # RF-02: the browser's device cookie; None for non-browser callers.
+    device_cookie: str | None = None
 
 
 class LoginService:
@@ -160,7 +163,7 @@ class LoginService:
         self._settings = settings
         self._policies = policies
 
-    def login(self, body: LoginRequest) -> LoginResponse:
+    def login(self, body: LoginRequest, device_cookie: str | None = None) -> LoginResponse:
         """App login: the application names the tenant (ADR-0033)."""
         with session_scope(self._session_factory) as session:
             app = session.get(Application, body.application_id)
@@ -184,10 +187,13 @@ class LoginService:
                 requested_redirect=body.redirect_uri,
                 registered_redirect=registered_redirect,
                 uniform_failures=False,
+                device_cookie=device_cookie,
             )
         )
 
-    def console_login(self, body: ConsoleLoginRequest) -> LoginResponse:
+    def console_login(
+        self, body: ConsoleLoginRequest, device_cookie: str | None = None
+    ) -> LoginResponse:
         """Operator login: the email's domain names the tenant (ADR-0033).
 
         An unknown domain costs the same bcrypt as a wrong password and answers
@@ -216,6 +222,7 @@ class LoginService:
                 requested_redirect=None,
                 registered_redirect=None,
                 uniform_failures=True,
+                device_cookie=device_cookie,
             )
         )
 
@@ -289,6 +296,7 @@ class LoginService:
             browser=attempt.browser,
             login_successful=True,
             user_agent=attempt.user_agent,
+            device_id=device_id(attempt.tenant_id, attempt.device_cookie),
             simulated=signals.simulated,
         )
         try:
@@ -395,6 +403,7 @@ class LoginService:
                     browser=attempt.browser,
                     login_successful=False,
                     user_agent=attempt.user_agent,
+                    device_id=device_id(attempt.tenant_id, attempt.device_cookie),
                     simulated=signals.simulated,
                 )
             )

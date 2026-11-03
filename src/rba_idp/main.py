@@ -68,6 +68,7 @@ from rba_idp.clients import AuditClient, HttpAuditClient, HttpPolicyClient, Poli
 from rba_idp.config import Settings, get_settings
 from rba_idp.db.models import Application
 from rba_idp.db.session import make_engine, make_session_factory, session_scope
+from rba_idp.devices import device_cookie
 from rba_idp.geo import configure_geoip
 from rba_idp.simulation import issue_ticket, verify_ticket
 from rba_idp.pdp import HttpPdpClient, PdpClient
@@ -217,9 +218,10 @@ def create_app(
         response_model_exclude_none=True,
         response_model_exclude_defaults=True,
     )
-    def login(body: LoginRequest, request: Request) -> LoginResponse:
+    def login(body: LoginRequest, request: Request, response: Response) -> LoginResponse:
         body = _observed(_resolve_client(body, request), request)
-        result = _run(request, lambda svc: svc.login(body))
+        device = device_cookie(request, response, request.app.state.settings)
+        result = _run(request, lambda svc: svc.login(body, device))
         metrics.observe_login("app", result.outcome)
         return _public(result)
 
@@ -229,9 +231,12 @@ def create_app(
         response_model_exclude_none=True,
         response_model_exclude_defaults=True,
     )
-    def console_login(body: ConsoleLoginRequest, request: Request) -> LoginResponse:
+    def console_login(
+        body: ConsoleLoginRequest, request: Request, response: Response
+    ) -> LoginResponse:
         body = _observed(body, request)
-        result = _run(request, lambda svc: svc.console_login(body))
+        device = device_cookie(request, response, request.app.state.settings)
+        result = _run(request, lambda svc: svc.console_login(body, device))
         metrics.observe_login("console", result.outcome)
         return _public(result)
 
