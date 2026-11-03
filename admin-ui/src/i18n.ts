@@ -95,6 +95,7 @@ const SIGNAL_LABEL: Record<string, string> = {
   hour: "Hora del día",
   // RF-02 (ADR-0047): the browser's own identifier, not its class.
   device_id: "Este dispositivo",
+  policy: "Regla de acceso",
   // freeman-0.4.0 (ADR-0043): one signal per hierarchy.
   network: "Red y ubicación",
   agent: "Dispositivo y navegador",
@@ -115,6 +116,7 @@ const CODE_LABEL: Record<string, string> = {
   supervised_second_opinion: "el modelo supervisado lo marcó como ataque",
   low_history: "pocos inicios previos, el perfil todavía aprende",
   device_new: "dispositivo nuevo para este usuario",
+  always_passkey: "passkey siempre (usuario o aplicación)",
   vpn_or_hosting: "VPN o red de hosting; no se evalúa el viaje",
   impossible_travel: "viaje imposible desde el último inicio",
   pdp_unavailable: "el motor de riesgo no respondió",

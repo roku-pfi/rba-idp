@@ -145,6 +145,13 @@ export function Users() {
       .then(reload)
       .catch(fail);
 
+  // RF-08 (ADR-0048).
+  const setAlwaysPasskey = (user: AdminUser, always_passkey: boolean) =>
+    api<AdminUser>(`/admin/api/users/${user.user_id}`, { method: "PATCH", body: JSON.stringify({ always_passkey }) })
+      .then(() => ok(`${user.email}: ${always_passkey ? "passkey en cada inicio" : "passkey según el riesgo"}.`))
+      .then(reload)
+      .catch(fail);
+
   // ADR-0037: how a user without a passkey gets one when every login asks for
   // it. Shown once here; the server keeps only its hash.
   const issueCode = (user: AdminUser) =>
@@ -241,9 +248,16 @@ export function Users() {
                         <LastLogin at={user.last_login_at} />
                       </TableCell>
                       <TableCell>
-                        <Tag size="sm" type={user.enabled ? "green" : "gray"}>
-                          {user.enabled ? "Activo" : "Deshabilitado"}
-                        </Tag>
+                        <span className="rk-tags rk-tags--gap">
+                          <Tag size="sm" type={user.enabled ? "green" : "gray"}>
+                            {user.enabled ? "Activo" : "Deshabilitado"}
+                          </Tag>
+                          {user.always_passkey && (
+                            <Hint text="Cada inicio de sesión pide la passkey, sin importar el riesgo.">
+                              <Tag size="sm" type="blue">Passkey siempre</Tag>
+                            </Hint>
+                          )}
+                        </span>
                       </TableCell>
                       <TableCell className="cds--table-column-menu">
                         {canWrite && (
@@ -251,6 +265,10 @@ export function Users() {
                             {user.enabled && (
                               <OverflowMenuItem itemText="Código de activación" onClick={() => issueCode(user)} />
                             )}
+                            <OverflowMenuItem
+                              itemText={user.always_passkey ? "Passkey según el riesgo" : "Pedir passkey siempre"}
+                              onClick={() => setAlwaysPasskey(user, !user.always_passkey)}
+                            />
                             {user.enabled ? (
                               <OverflowMenuItem itemText="Deshabilitar" isDelete hasDivider onClick={() => setDisabling(user)} />
                             ) : (

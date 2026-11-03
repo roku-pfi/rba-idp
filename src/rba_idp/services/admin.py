@@ -170,6 +170,7 @@ def _users_public(session: Session, rows: list[User]) -> list[AdminUserPublic]:
             groups=groups[row.user_id],
             passkeys=passkeys.get(row.user_id, 0),
             last_login_at=_as_utc(row.last_login_at) if row.last_login_at else None,
+            always_passkey=bool(row.always_passkey),
         )
         for row in rows
     ]
@@ -188,6 +189,7 @@ def _app_public(row: Application) -> ApplicationPublic:
         enabled=row.enabled,
         created_at=_as_utc(row.created_at),
         redirect_uri=row.redirect_uri,
+        always_passkey=bool(row.always_passkey),
     )
 
 
@@ -586,6 +588,8 @@ class AdminService:
                 )
             if body.password is not None:
                 row.password_hash = hash_password(body.password)
+            if body.always_passkey is not None:
+                row.always_passkey = body.always_passkey
             session.flush()
             session.refresh(row)
             return _user_public(session, row)
@@ -649,6 +653,8 @@ class AdminService:
                 row.enabled = body.enabled
             if body.redirect_uri is not None:
                 row.redirect_uri = body.redirect_uri or None
+            if body.always_passkey is not None:
+                row.always_passkey = body.always_passkey
             session.flush()
             session.refresh(row)
             return _app_public(row)

@@ -112,6 +112,12 @@ def user_has_app_access(session: Session, user_id: str, application_id: str) -> 
     return has_application_access(session, user_id, application_id)
 
 
+def _floor(action: Action, always_passkey: bool) -> Action:
+    """RF-08 (ADR-0048): a user or application that always asks for the
+    passkey turns an ALLOW into a step-up; anything stricter stays."""
+    return Action.REQUIRE_MFA if always_passkey and action == Action.ALLOW else action
+
+
 def _challenge_risk(challenge: MfaChallenge) -> dict:
     """The decision a challenge was opened for, as LoginResponse fields.
 
@@ -238,6 +244,7 @@ class LoginService:
     def _authenticate(self, attempt: _Attempt) -> LoginResponse:
         email = attempt.email.strip().lower()
         wrong_password_for: str | None = None
+        always_passkey = False
         with session_scope(self._session_factory) as session:
             user = session.scalar(
                 select(User).where(
@@ -253,6 +260,10 @@ class LoginService:
                 wrong_password_for = user.user_id
             else:
                 user_id = user.user_id
+                app = session.get(Application, attempt.application_id)
+                always_passkey = bool(user.always_passkey) or bool(
+                    app is not None and app.always_passkey
+                )
                 if not user_has_app_access(session, user_id, attempt.application_id):
                     if attempt.uniform_failures:
                         return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
@@ -278,7 +289,7 @@ class LoginService:
             return self._enforce(
                 user_id,
                 attempt,
-                base_action(policy.base_policy),
+                _floor(base_action(policy.base_policy), always_passkey),
                 decision=None,
             )
 
@@ -297,6 +308,7 @@ class LoginService:
             login_successful=True,
             user_agent=attempt.user_agent,
             device_id=device_id(attempt.tenant_id, attempt.device_cookie),
+            step_up_required=always_passkey,
             simulated=signals.simulated,
         )
         try:
@@ -315,7 +327,10 @@ class LoginService:
                 policy.engine_mode if policy is not None else EngineMode.ACTIVE,
             )
 
-        return self._enforce(user_id, attempt, decision.enforced_action, decision=decision)
+        # The PDP already floors it; a fallback decision does not.
+        return self._enforce(
+            user_id, attempt, _floor(decision.enforced_action, always_passkey), decision=decision
+        )
 
     def _degraded_decision(
         self, event_id: UUID, engine_mode: EngineMode

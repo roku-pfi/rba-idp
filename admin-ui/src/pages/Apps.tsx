@@ -84,6 +84,13 @@ export function Apps() {
       .then(reload)
       .catch(fail);
 
+  // RF-08 (ADR-0048).
+  const setAlwaysPasskey = (app: Application, always_passkey: boolean) =>
+    api(`/admin/api/applications/${app.application_id}`, { method: "PATCH", body: JSON.stringify({ always_passkey }) })
+      .then(() => ok(`${app.name}: ${always_passkey ? "passkey en cada inicio" : "passkey según el riesgo"}.`))
+      .then(reload)
+      .catch(fail);
+
   return (
     <>
       <PageHead
@@ -110,6 +117,10 @@ export function Apps() {
                 {canWrite && (
                   <OverflowMenu size="sm" flipped iconDescription="Acciones" aria-label={`Acciones para ${app.name}`}>
                     <OverflowMenuItem itemText="Editar" onClick={() => setEditing(app)} />
+                    <OverflowMenuItem
+                      itemText={app.always_passkey ? "Passkey según el riesgo" : "Pedir passkey siempre"}
+                      onClick={() => setAlwaysPasskey(app, !app.always_passkey)}
+                    />
                     {app.enabled ? (
                       <OverflowMenuItem itemText="Deshabilitar" isDelete hasDivider onClick={() => setDisabling(app)} />
                     ) : (
@@ -135,6 +146,11 @@ export function Apps() {
                 <Tag size="sm" type={app.enabled ? "green" : "gray"}>
                   {app.enabled ? "Activa" : "Deshabilitada"}
                 </Tag>
+                {app.always_passkey && (
+                  <Hint text="Cada inicio de sesión en esta aplicación pide la passkey, sin importar el riesgo.">
+                    <Tag size="sm" type="blue">Passkey siempre</Tag>
+                  </Hint>
+                )}
                 <span className="rk-secondary">
                   {app.redirect_uri ? <Hint text={app.redirect_uri}>Retorno</Hint> : "Sin retorno"} · {fmt.dateTime(app.created_at).split(",")[0]}
                 </span>

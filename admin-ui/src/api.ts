@@ -38,6 +38,8 @@ export type AdminUser = {
   /** 0 means a step-up cannot succeed (ADR-0037). */
   passkeys: number;
   last_login_at: string | null;
+  /** RF-08 (ADR-0048): every login asks for the passkey. */
+  always_passkey?: boolean;
 };
 
 export type Application = {
@@ -48,6 +50,8 @@ export type Application = {
   redirect_uri?: string | null;
   /** Public, opaque id for login URLs (contracts 0.14.0). */
   client_id?: string | null;
+  /** RF-08 (ADR-0048): every login to it asks for the passkey. */
+  always_passkey?: boolean;
 };
 
 export type Group = {

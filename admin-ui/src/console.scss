@@ -190,6 +190,7 @@ body {
 .rk-status--off { color: var(--cds-text-secondary); svg { fill: var(--cds-icon-secondary); } }
 
 .rk-tags { display: flex; flex-wrap: wrap; align-items: center; }
+.rk-tags--gap { gap: 0.25rem; }
 
 // ---------------------------------------------------------------- home
 // The week in four figures: label on top (meaning on hover), number below.

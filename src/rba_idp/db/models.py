@@ -81,6 +81,8 @@ class Application(Base):
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     redirect_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # RF-08 (ADR-0048): every login to this application asks for the passkey.
+    always_passkey: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -103,6 +105,9 @@ class User(Base):
     # adds or removes membership of the tenant's admin group, so the flag can never disagree
     # with what the user can actually do.
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # RF-08 (ADR-0048): every login asks for the passkey. Nullable so a kept
+    # database gains the column in place (db.session._add_nullable_columns).
+    always_passkey: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
