@@ -7,7 +7,13 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 from rba_contracts import Action, LoginOutcome
 
+from rba_idp.db.models import AuthCode
+from sqlalchemy import select
 from tests.helpers import DIEGO, LOGIN, StubPdp, client_for
+
+
+def _bearer(token: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {token}"}
 
 
 def _code_from(redirect_to: str) -> str:
@@ -25,9 +31,25 @@ def test_allow_issues_callback_for_seeded_banking_app(client: TestClient) -> Non
     exchanged = client.post("/callback/token", json={"code": code})
     assert exchanged.status_code == 200
     payload = exchanged.json()
-    assert payload["session"]["token"] == body["session"]["token"]
     assert payload["user"]["email"] == "martin@correo.example"
     assert payload["user"]["is_admin"] is False
+    # Redeeming rotates the token: only the app's copy is valid.
+    app_token = payload["session"]["token"]
+    assert app_token != body["session"]["token"]
+    assert client.get("/session", headers=_bearer(app_token)).status_code == 200
+    stale = client.get("/session", headers=_bearer(body["session"]["token"]))
+    assert stale.status_code == 401
+
+
+def test_auth_codes_hold_no_raw_token(client: TestClient) -> None:
+    body = client.post("/login", json=LOGIN).json()
+    raw = body["session"]["token"]
+    factory = client.app.state.session_factory
+    with factory() as session:
+        rows = session.scalars(select(AuthCode)).all()
+    assert rows
+    for row in rows:
+        assert raw not in {getattr(row, c.name) for c in AuthCode.__table__.columns}
 
 
 def test_callback_code_is_one_time(client: TestClient) -> None:

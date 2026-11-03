@@ -32,6 +32,7 @@ class SchemaPredatesTenancy(RuntimeError):
 
 def create_tables(engine: Engine) -> None:
     _refuse_pre_tenancy_schema(engine)
+    _drop_raw_token_auth_codes(engine)
     Base.metadata.create_all(engine)
     _add_nullable_columns(engine)
 
@@ -55,6 +56,20 @@ def _add_nullable_columns(engine: Engine) -> None:
                     continue
                 kind = column.type.compile(dialect=engine.dialect)
                 conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
+
+
+def _drop_raw_token_auth_codes(engine: Engine) -> None:
+    """Drop an ``auth_codes`` table that still stores raw session tokens.
+
+    Its rows live two minutes, so a kept database (k3d) loses nothing it needs;
+    ``create_all`` then recreates the table holding only the session's hash.
+    """
+    inspector = inspect(engine)
+    if "auth_codes" not in inspector.get_table_names():
+        return
+    if "session_token" in {c["name"] for c in inspector.get_columns("auth_codes")}:
+        with engine.begin() as conn:
+            conn.execute(text('DROP TABLE "auth_codes"'))
 
 
 def _refuse_pre_tenancy_schema(engine: Engine) -> None:

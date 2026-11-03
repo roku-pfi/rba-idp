@@ -321,12 +321,17 @@ class WebAuthnCredential(Base):
 
 
 class AuthCode(Base):
-    """One-time callback code bound to an issued session (Demo-2, not OIDC)."""
+    """One-time callback code bound to an issued session (Demo-2, not OIDC).
+
+    Holds only the session's hash. Redeeming the code rotates the session to a
+    fresh token, so no raw token is ever stored and the copy the hosted login
+    page held stops working once the app has its own.
+    """
 
     __tablename__ = "auth_codes"
 
     code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
-    session_token: Mapped[str] = mapped_column(String(128), nullable=False)
+    session_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(String(128), nullable=False)
     application_id: Mapped[str] = mapped_column(String(128), nullable=False)
     redirect_uri: Mapped[str] = mapped_column(String(512), nullable=False)

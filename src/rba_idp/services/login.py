@@ -512,17 +512,27 @@ class LoginService:
                 or _as_utc(row.expires_at) <= now
             ):
                 raise HTTPException(status_code=400, detail="unknown or expired code")
-            stored = session.get(IdpSession, hash_session_token(row.session_token))
+            stored = session.get(IdpSession, row.session_hash)
             user = session.get(User, row.user_id)
             if stored is None or _as_utc(stored.expires_at) <= now:
                 raise HTTPException(status_code=400, detail="unknown or expired code")
             if user is None or not user.enabled:
                 raise HTTPException(status_code=400, detail="unknown or expired code")
             row.consumed_at = now
+            # Same session, new token: the app's copy is the only valid one. It
+            # cannot enroll a passkey; that happens on the hosted page only.
+            raw = new_session_token()
+            session.add(
+                IdpSession(
+                    token_hash=hash_session_token(raw),
+                    user_id=stored.user_id,
+                    application_id=stored.application_id,
+                    expires_at=stored.expires_at,
+                )
+            )
+            session.delete(stored)
             return CallbackTokenResponse(
-                session=SessionToken(
-                    token=row.session_token, expires_at=_as_utc(stored.expires_at)
-                ),
+                session=SessionToken(token=raw, expires_at=_as_utc(stored.expires_at)),
                 user=UserPublic(
                     tenant_id=user.tenant_id,
                     user_id=user.user_id,
@@ -657,7 +667,7 @@ class LoginService:
                 session,
                 user_id=user_id,
                 application_id=application_id,
-                raw_token=token.token,
+                session_hash=hash_session_token(token.token),
                 requested_redirect=requested_redirect,
                 registered_redirect=registered_redirect,
             )
@@ -696,7 +706,7 @@ class LoginService:
         *,
         user_id: str,
         application_id: str,
-        raw_token: str,
+        session_hash: str,
         requested_redirect: str | None,
         registered_redirect: str | None,
     ) -> str | None:
@@ -708,7 +718,7 @@ class LoginService:
         session.add(
             AuthCode(
                 code_hash=hash_session_token(code),
-                session_token=raw_token,
+                session_hash=session_hash,
                 user_id=user_id,
                 application_id=application_id,
                 redirect_uri=target,
@@ -791,7 +801,7 @@ class LoginService:
             session,
             user_id=challenge.user_id,
             application_id=challenge.application_id,
-            raw_token=token.token,
+            session_hash=hash_session_token(token.token),
             requested_redirect=redirect_uri,
             registered_redirect=registered_redirect,
         )
