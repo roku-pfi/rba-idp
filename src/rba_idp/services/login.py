@@ -580,6 +580,7 @@ class LoginService:
         challenge_id: UUID | None = None
         redirect_to: str | None = None
         passkey_offer = False
+        unusual = False
         if action == Action.ALLOW:
             # ADR-0037: only a login the engine itself judged usual is a
             # trusted context to enroll from — not a monitor-mode ALLOW of a
@@ -619,6 +620,13 @@ class LoginService:
             challenge_id = self._create_challenge(
                 user_id, attempt.application_id, action, decision
             )
+            # RF-17: say "unusual" only when the engine asked for it, not when
+            # the tenant always asks for a passkey or the engine is down.
+            unusual = (
+                decision is not None
+                and not decision.fallback
+                and decision.action != Action.ALLOW
+            )
 
         return LoginResponse(
             outcome=outcome_from_action(action),
@@ -632,6 +640,7 @@ class LoginService:
             challenge_id=challenge_id,
             redirect_to=redirect_to,
             passkey_offer=passkey_offer,
+            unusual=unusual,
         )
 
     def _has_passkey(self, user_id: str) -> bool:

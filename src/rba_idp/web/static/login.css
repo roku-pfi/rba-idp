@@ -123,6 +123,19 @@ h1 { margin: 0 0 0.5rem; font-size: 1.75rem; font-weight: 400; line-height: 1.25
 .lede { margin: 0 0 1.5rem; color: var(--text-2); font-size: 0.875rem; line-height: 1.4; }
 .lede:empty { display: none; }
 .hint { margin: 0.75rem 0 0; color: var(--text-2); font-size: 0.75rem; line-height: 1.4; }
+/* RF-17: the login looked unusual; why is on hover (title). */
+.unusual:not([hidden]) {
+  display: inline-block;
+  margin: 0 0 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  cursor: help;
+}
+.unusual:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 label { display: block; margin: 0 0 0.5rem; color: var(--text-2); font-size: 0.75rem; letter-spacing: 0.02em; }
 

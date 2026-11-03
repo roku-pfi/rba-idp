@@ -109,6 +109,7 @@
     if (outcome === "MFA_REQUIRED" || outcome === "REAUTH_REQUIRED") {
       document.getElementById("challenge-title").textContent = "Confirmá que sos vos";
       document.getElementById("challenge-lede").textContent = "Con la passkey de este dispositivo.";
+      document.getElementById("challenge-unusual").hidden = !body.unusual;
       document.getElementById("mfa-submit").dataset.challengeId = body.challenge_id;
       setError("mfa-error", "");
       show("challenge");

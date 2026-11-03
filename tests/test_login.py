@@ -10,7 +10,7 @@ from rba_contracts import Action, LoginOutcome, RiskLevel
 
 from rba_idp.db.models import IdpSession
 from rba_idp.tokens import hash_session_token
-from tests.helpers import DIEGO, LOGIN, MOCK_OTP, REASON, StubPdp, client_for, console_token
+from tests.helpers import DIEGO, LOGIN, MOCK_OTP, PRIVATE_FIELDS, REASON, StubPdp, client_for, console_token
 from tests.helpers import test_settings as make_settings
 
 
@@ -24,10 +24,8 @@ def test_allow_issues_session_and_calls_pdp(client: TestClient, pdp: StubPdp) ->
     body = resp.json()
     assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
     assert body["user_id"] == "usr_rb_martin"
-    assert body["action"] == Action.ALLOW.value
-    assert body["risk_score"] == 0.12
-    assert body["risk_level"] == RiskLevel.LOW.value
-    assert body["reasons"] == [REASON.model_dump(mode="json")]
+    # RF-17: the browser never sees the verdict, the score or the signals.
+    assert not set(PRIVATE_FIELDS) & set(body)
     UUID(body["event_id"])
     assert body["session"]["token"]
     assert body["session"]["expires_at"]
@@ -96,9 +94,8 @@ def test_pdp_action_maps_to_login_outcome(
     assert resp.status_code == 200
     body = resp.json()
     assert body["outcome"] == outcome.value
-    assert body["action"] == action.value
-    assert body["risk_score"] == score
-    assert body["risk_level"] == level.value
+    assert not set(PRIVATE_FIELDS) & set(body)
+    assert body.get("unusual", False) is (action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE))
     assert body["user_id"] == "usr_rb_martin"
     if action == Action.ALLOW:
         assert body["session"]["token"]
@@ -186,13 +183,12 @@ def test_pdp_unavailable_degrades_to_mfa() -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["outcome"] == LoginOutcome.MFA_REQUIRED.value
-    assert body["action"] == Action.REQUIRE_MFA.value
     UUID(body["challenge_id"])
     assert "session" not in body
 
-    # There is no score to report, and the reason says exactly that.
-    assert body["risk_score"] == 0.0
-    assert [r["code"] for r in body["reasons"]] == ["pdp_unavailable"]
+    # The engine did not judge this login, so it is not called unusual.
+    assert not set(PRIVATE_FIELDS) & set(body)
+    assert "unusual" not in body
 
 
 def test_pdp_unavailable_never_issues_a_session() -> None:

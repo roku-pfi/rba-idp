@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from rba_contracts import Action, LoginOutcome, RiskLevel
 from webauthn.helpers import bytes_to_base64url
 
-from tests.helpers import LOGIN, REASON, StubPdp, client_for
+from tests.helpers import LOGIN, PRIVATE_FIELDS, REASON, StubPdp, client_for
 
 RP_ID = "testserver"
 ORIGIN = "http://testserver"
@@ -151,9 +151,7 @@ def test_step_up_with_an_enrolled_passkey_issues_session_without_rescoring() -> 
         assert resp.status_code == 200
         body = resp.json()
         assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
-        assert body["action"] == Action.REQUIRE_MFA.value
-        assert body["risk_score"] == 0.61
-        assert body["reasons"] == [REASON.model_dump(mode="json")]
+        assert not set(PRIVATE_FIELDS) & set(body)  # RF-17
         token = body["session"]["token"]
         assert client.get(
             "/session", headers={"Authorization": f"Bearer {token}"}

@@ -221,7 +221,7 @@ def create_app(
         body = _observed(_resolve_client(body, request), request)
         result = _run(request, lambda svc: svc.login(body))
         metrics.observe_login("app", result.outcome)
-        return result
+        return _public(result)
 
     @app.post(
         "/console/login",
@@ -233,7 +233,7 @@ def create_app(
         body = _observed(body, request)
         result = _run(request, lambda svc: svc.console_login(body))
         metrics.observe_login("console", result.outcome)
-        return result
+        return _public(result)
 
     @app.post(
         "/mfa/verify",
@@ -244,7 +244,7 @@ def create_app(
     def verify_mfa(body: MfaVerifyRequest, request: Request) -> LoginResponse:
         result = _run(request, lambda svc: svc.verify_mfa(body))
         metrics.observe_step_up("otp", result.outcome)
-        return result
+        return _public(result)
 
     @app.post(
         "/mfa/webauthn/options",
@@ -267,7 +267,7 @@ def create_app(
     ) -> LoginResponse:
         result = _run(request, lambda svc: svc.verify_webauthn(body))
         metrics.observe_step_up("passkey", result.outcome)
-        return result
+        return _public(result)
 
     # ---------------------------------------------------------------- enrollment (ADR-0037)
 
@@ -734,6 +734,27 @@ def _observed(body, request: Request):
     if hasattr(body, "simulation_ticket"):
         update["simulation_ticket"] = None
     return body.model_copy(update=update)
+
+
+# The one reason the browser may see: the owner's own failures paused the
+# account (ADR-0045), so the page can say "wait a few minutes".
+PUBLIC_REASON_CODES = frozenset({"account_cooldown"})
+
+
+def _public(result: LoginResponse) -> LoginResponse:
+    """What a login answer may show the browser (RF-17, ADR-0023).
+
+    No score, level, verdict or signal: an attacker must not learn which
+    signal to fix. ``unusual`` says only that the engine asked for the step-up.
+    """
+    return result.model_copy(
+        update={
+            "action": None,
+            "risk_score": None,
+            "risk_level": None,
+            "reasons": [r for r in result.reasons if r.code in PUBLIC_REASON_CODES],
+        }
+    )
 
 
 def _run(request: Request, op):

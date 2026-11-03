@@ -244,3 +244,7 @@ def bearer(token: str, tenant: str | None = None) -> dict[str, str]:
     if tenant is not None:
         headers[TENANT_HEADER] = tenant
     return headers
+
+
+# RF-17: LoginResponse fields the public endpoints never send to the browser.
+PRIVATE_FIELDS = ("action", "risk_score", "risk_level", "reasons")

@@ -10,7 +10,7 @@ from rba_contracts import Action, LoginOutcome, RiskLevel
 
 from rba_idp.db.models import IdpSession, MfaChallenge
 from rba_idp.tokens import hash_session_token
-from tests.helpers import LOGIN, MOCK_OTP, REASON, StubPdp, client_for
+from tests.helpers import LOGIN, MOCK_OTP, PRIVATE_FIELDS, REASON, StubPdp, client_for
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -81,9 +81,7 @@ def test_mfa_verify_issues_session() -> None:
         body = resp.json()
         assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
         assert body["user_id"] == "usr_rb_martin"
-        assert body["action"] == Action.REQUIRE_MFA.value
-        assert body["risk_score"] == 0.61
-        assert body["reasons"] == [REASON.model_dump(mode="json")]
+        assert not set(PRIVATE_FIELDS) & set(body)  # RF-17
         token = body["session"]["token"]
         assert client.get("/session", headers=_auth(token)).status_code == 200
         assert len(pdp.calls) == 1
@@ -103,7 +101,7 @@ def test_reauth_verify_issues_session() -> None:
         assert resp.status_code == 200
         body = resp.json()
         assert body["outcome"] == LoginOutcome.AUTHENTICATED.value
-        assert body["action"] == Action.REAUTHENTICATE.value
+        assert not set(PRIVATE_FIELDS) & set(body)  # RF-17
         assert body["session"]["token"]
 
 

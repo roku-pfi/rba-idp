@@ -152,8 +152,9 @@ def test_the_idp_enforces_enforced_action_not_the_verdict(pdp: StubPdp) -> None:
     with client_for(pdp) as client:
         body = client.post("/login", json=LOGIN).json()
     assert body["outcome"] == LoginOutcome.MFA_REQUIRED.value
-    assert body["action"] == Action.REQUIRE_MFA.value
     assert "session" not in body
+    # RF-17: the policy asked, not the engine; nothing unusual to report.
+    assert "unusual" not in body
 
 
 def test_monitor_mode_does_not_enforce_a_block(pdp: StubPdp) -> None:
@@ -229,7 +230,7 @@ def test_unreachable_policy_falls_through_to_the_pdp_path() -> None:
     with client_for(FailingPdp(), policy_client=policies) as client:
         body = client.post("/login", json=LOGIN).json()
     assert body["outcome"] == LoginOutcome.MFA_REQUIRED.value
-    assert body["reasons"][0]["code"] == "pdp_unavailable"
+    assert "unusual" not in body  # the engine was not reached
 
 
 # ================================================================ console login

@@ -76,6 +76,9 @@
 
         <section id="panel-challenge" hidden>
           <h1 id="challenge-title">Confirmá que sos vos</h1>
+          {#- RF-17: that the login looked unusual, never which signal. #}
+          <p class="unusual" id="challenge-unusual" hidden tabindex="0"
+             title="Este inicio no se parece a los habituales de tu cuenta. Por eso te pedimos la passkey.">Inicio poco habitual</p>
           <p class="lede" id="challenge-lede">Con la passkey de este dispositivo.</p>
           <p class="hint" id="mfa-inapp" hidden></p>
           <p class="form-error" id="mfa-error" hidden></p>
