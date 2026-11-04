@@ -11,6 +11,7 @@
     denied: document.getElementById("panel-denied"),
     session: document.getElementById("panel-session"),
     nofactor: document.getElementById("panel-nofactor"),
+    enroll: document.getElementById("panel-enroll"),
     offer: document.getElementById("panel-offer"),
     unavailable: document.getElementById("panel-unavailable"),
   };
@@ -102,7 +103,10 @@
       return;
     }
     if (outcome === "SECOND_FACTOR_MISSING") {
-      // ADR-0037: a step-up never becomes an enrollment.
+      // ADR-0037: a step-up never becomes an enrollment by itself; an
+      // operator-issued code (with the password just typed) can.
+      setError("activate-error", "");
+      document.getElementById("activation-code").value = "";
       show("nofactor");
       return;
     }
@@ -259,6 +263,80 @@
   document.getElementById("denied-restart").addEventListener("click", restart);
   document.getElementById("unavailable-restart").addEventListener("click", restart);
   document.getElementById("nofactor-restart").addEventListener("click", restart);
+  document.getElementById("enroll-restart").addEventListener("click", restart);
+
+  // Activation inside the login (ADR-0037, second door): same endpoints as
+  // /activate, with the password from the login form. Once the passkey is
+  // stored the login runs again, so the engine decides as for any login.
+  let activationCode = "";
+  let enrollKey = null;
+
+  document.getElementById("form-activate").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setError("activate-error", "");
+    if (!window.PublicKeyCredential) {
+      setError("activate-error", "Este navegador no admite passkeys.");
+      return;
+    }
+    const submit = document.getElementById("activate-submit");
+    submit.disabled = true;
+    activationCode = document.getElementById("activation-code").value;
+    try {
+      const resp = await fetch("/activate/options", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: activationCode, password: document.getElementById("password").value }),
+      });
+      if (resp.status !== 200) {
+        setError("activate-error", "El código no es correcto o venció.");
+        return;
+      }
+      enrollKey = publicKeyFromJson((await parseJson(resp)).public_key);
+      setError("enroll-error", "");
+      show("enroll");
+      warnInApp(document.getElementById("enroll-inapp"));
+    } catch {
+      setError("activate-error", "Sin conexión con el servidor. Probá de nuevo.");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  document.getElementById("enroll-submit").addEventListener("click", async () => {
+    if (!enrollKey) return;
+    const button = document.getElementById("enroll-submit");
+    const wait = document.getElementById("enroll-wait");
+    button.disabled = true;
+    setError("enroll-error", "");
+    try {
+      // First thing in the tap handler: nothing awaited before it.
+      const pending = navigator.credentials.create({ publicKey: enrollKey });
+      waiting(wait, true);
+      const cred = await pending;
+      waiting(wait, false);
+      const resp = await fetch("/activate/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: activationCode, credential: credentialToJson(cred) }),
+      });
+      if (resp.status !== 204) {
+        setError("enroll-error", "No se pudo guardar la passkey. Pedí un código nuevo.");
+        return;
+      }
+      enrollKey = null;
+      document.getElementById("form-login").requestSubmit();
+    } catch (err) {
+      waiting(wait, false);
+      setError(
+        "enroll-error",
+        err && err.name === "NotAllowedError"
+          ? "El dispositivo no creó la passkey. Tocá de nuevo para reintentar."
+          : "No se pudo crear la passkey. Pedí un código nuevo."
+      );
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   document.getElementById("offer-skip").addEventListener("click", (event) => {
     event.preventDefault();

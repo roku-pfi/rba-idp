@@ -108,8 +108,24 @@
 
         <section id="panel-nofactor" hidden>
           <h1>Necesitás una passkey</h1>
-          <p class="lede">Pedile un código de activación a soporte.</p>
-          <p class="back"><a href="/activate">Tengo un código</a> · <a href="#" id="nofactor-restart">Volver</a></p>
+          <p class="lede">Ingresá el código de activación que te dio soporte.</p>
+          <form id="form-activate" autocomplete="off">
+            <label for="activation-code">Código de activación</label>
+            <input id="activation-code" name="code" required autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX">
+            <p class="form-error" id="activate-error" hidden></p>
+            <button type="submit" id="activate-submit">Continuar</button>
+          </form>
+          <p class="back"><a href="#" id="nofactor-restart">Volver</a></p>
+        </section>
+
+        <section id="panel-enroll" hidden>
+          <h1>Creá tu passkey</h1>
+          <p class="lede">Tu dispositivo te va a pedir la huella, la cara o el bloqueo de pantalla.</p>
+          <p class="hint" id="enroll-inapp" hidden></p>
+          <p class="form-error" id="enroll-error" hidden></p>
+          <button type="button" id="enroll-submit">Crear passkey</button>
+          <p class="hint" id="enroll-wait" hidden></p>
+          <p class="back"><a href="#" id="enroll-restart">Volver</a></p>
         </section>
 
         <section id="panel-offer" hidden>

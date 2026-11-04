@@ -39,6 +39,10 @@ const HEADERS = [
   { key: "status", header: "Estado" },
 ];
 
+// The code rides in the fragment: the browser never sends it, so it stays out
+// of server and CDN logs. The page still asks for the password.
+const activationLink = (code: string) => `${window.location.origin}/activate#${code}`;
+
 function Person({ user }: { user: AdminUser }) {
   return (
     <div className="rk-cell">
@@ -368,9 +372,17 @@ export function Users() {
                 onClick={() => void navigator.clipboard.writeText(code.code)}
               />
             </div>
+            <div className="rk-cell">
+              <span className="rk-mono">{activationLink(code.code)}</span>
+              <CopyButton
+                iconDescription="Copiar enlace"
+                feedback="Copiado"
+                onClick={() => void navigator.clipboard.writeText(activationLink(code.code))}
+              />
+            </div>
             <p className="rk-secondary">
-              Vence: {fmt.time(code.expires_at)}. Con el código y su contraseña registra una passkey en{" "}
-              <span className="rk-mono">{window.location.origin}/activate</span>.
+              Vence: {fmt.time(code.expires_at)}. Con el código y su contraseña registra una passkey desde el enlace o al
+              iniciar sesión.
             </p>
           </>
         )}

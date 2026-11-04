@@ -11,6 +11,15 @@
   let code = "";
   let publicKey = null;
 
+  // The console's link carries the code in the fragment, which the browser
+  // never sends: it stays out of server and CDN logs.
+  const fromLink = decodeURIComponent(window.location.hash.slice(1));
+  if (fromLink) {
+    document.getElementById("code").value = fromLink;
+    history.replaceState(null, "", window.location.pathname);
+    document.getElementById("password").focus();
+  }
+
   function setError(id, message) {
     const el = document.getElementById(id);
     el.hidden = !message;
