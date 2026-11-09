@@ -163,6 +163,7 @@ class StubAudit:
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = 50,
+        include_load: bool = False,
     ) -> DecisionListResponse:
         self.tenants_asked.append(tenant_id)
         rows = [row for row in self.items if row.tenant_id == tenant_id]
@@ -181,7 +182,7 @@ class StubAudit:
                 return row
         raise AuditNotFound(str(event_id))
 
-    def summarize(self, tenant_id: str, days: int = 7) -> DecisionSummary:
+    def summarize(self, tenant_id: str, days: int = 7, include_load: bool = False) -> DecisionSummary:
         rows = [row for row in self.items if row.tenant_id == tenant_id]
         by_action: dict[str, int] = {}
         for row in rows:
@@ -199,7 +200,7 @@ class FailingAudit:
     def get_decision(self, tenant_id, event_id):
         raise ControlPlaneUnavailable("connection refused")
 
-    def summarize(self, tenant_id, days=7):
+    def summarize(self, tenant_id, days=7, include_load=False):
         raise ControlPlaneUnavailable("connection refused")
 
 

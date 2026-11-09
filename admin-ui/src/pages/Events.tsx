@@ -28,6 +28,7 @@ import {
   TableToolbarContent,
   TableToolbarSearch,
   Tag,
+  Toggle,
 } from "@carbon/react";
 import {
   ArrowDown,
@@ -42,7 +43,7 @@ import {
   UserIdentification,
   View,
 } from "@carbon/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type AdminUser, type Application, type Decision } from "../api";
 import { Avatar, Hint, PageHead, TwoLines } from "../components";
 import { useConsole } from "../console";
@@ -400,8 +401,14 @@ const OUTCOME_FILTER = [ALL, "ALLOW", "REQUIRE_MFA", "REAUTHENTICATE", "BLOCK"];
 export function Events({ itemId }: { itemId: string | null }) {
   const { fail } = useConsole();
   const lookup = useLookup();
+  // The presenter's load users stay out unless asked (they would fill the list).
+  const [withLoad, setWithLoad] = useState(false);
+  const withLoadRef = useRef(withLoad);
   const [items, reload, loading] = useLoad(
-    () => api<{ items: Decision[] }>("/admin/api/decisions?limit=200").then((body) => body.items || []),
+    () =>
+      api<{ items: Decision[] }>(`/admin/api/decisions?limit=200${withLoadRef.current ? "&include_load=true" : ""}`).then(
+        (body) => body.items || [],
+      ),
     [] as Decision[],
   );
   const [updated, setUpdated] = useState(() => new Date());
@@ -453,6 +460,21 @@ export function Events({ itemId }: { itemId: string | null }) {
         info="Cada inicio de sesión que evaluó el motor: de dónde vino, qué tan riesgoso era y qué se hizo. Abrí una fila para ver por qué."
       >
         <div className="rk-refresh">
+          <Hint text="Mostrar también los inicios de la prueba de carga del presentador.">Carga</Hint>
+          <Toggle
+              id="events-with-load"
+              size="sm"
+              labelText="Mostrar la prueba de carga"
+              hideLabel
+              labelA=""
+              labelB=""
+              toggled={withLoad}
+              onToggle={(on: boolean) => {
+                withLoadRef.current = on;
+                setWithLoad(on);
+                reload().then(() => setUpdated(new Date())).catch(fail);
+              }}
+            />
           <span className="rk-secondary">{fmt.time(updated.toISOString())}</span>
           <IconButton
             kind="ghost"

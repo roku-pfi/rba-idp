@@ -53,11 +53,12 @@ class AuditClient(Protocol):
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = 50,
+        include_load: bool = False,
     ) -> DecisionListResponse: ...
 
     def get_decision(self, tenant_id: str, event_id: UUID) -> DecisionRecord: ...
 
-    def summarize(self, tenant_id: str, days: int = 7) -> DecisionSummary: ...
+    def summarize(self, tenant_id: str, days: int = 7, include_load: bool = False) -> DecisionSummary: ...
 
 
 class HttpPolicyClient:
@@ -134,6 +135,7 @@ class HttpAuditClient:
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = 50,
+        include_load: bool = False,
     ) -> DecisionListResponse:
         params: dict[str, str | int] = {"tenant_id": tenant_id, "limit": limit}
         if user_id:
@@ -142,6 +144,8 @@ class HttpAuditClient:
             params["application_id"] = application_id
         if action is not None:
             params["action"] = action.value
+        if include_load:
+            params["include_load"] = "true"
         try:
             response = self._client.get("/decisions", params=params)
             response.raise_for_status()
@@ -152,10 +156,11 @@ class HttpAuditClient:
         except Exception as exc:
             raise ControlPlaneUnavailable("invalid audit response") from exc
 
-    def summarize(self, tenant_id: str, days: int = 7) -> DecisionSummary:
+    def summarize(self, tenant_id: str, days: int = 7, include_load: bool = False) -> DecisionSummary:
         try:
             response = self._client.get(
-                "/decisions/summary", params={"tenant_id": tenant_id, "days": days}
+                "/decisions/summary",
+                params={"tenant_id": tenant_id, "days": days, "include_load": str(include_load).lower()},
             )
             response.raise_for_status()
             return DecisionSummary.model_validate(response.json())

@@ -341,8 +341,18 @@
   },
   "sweep_low_max": [
     {
+      "low_max": 0.05,
+      "legit_friction": 0.21510250636095107,
+      "ato_stopped": 0.8157894736842105
+    },
+    {
       "low_max": 0.1,
       "legit_friction": 0.21460532857602432,
+      "ato_stopped": 0.8157894736842105
+    },
+    {
+      "low_max": 0.15,
+      "legit_friction": 0.21451759131986078,
       "ato_stopped": 0.8157894736842105
     },
     {
@@ -351,7 +361,17 @@
       "ato_stopped": 0.8157894736842105
     },
     {
+      "low_max": 0.25,
+      "legit_friction": 0.21445909981575176,
+      "ato_stopped": 0.8157894736842105
+    },
+    {
       "low_max": 0.3,
+      "legit_friction": 0.21440060831164273,
+      "ato_stopped": 0.8157894736842105
+    },
+    {
+      "low_max": 0.35,
       "legit_friction": 0.21440060831164273,
       "ato_stopped": 0.8157894736842105
     },
@@ -361,13 +381,33 @@
       "ato_stopped": 0.8157894736842105
     },
     {
+      "low_max": 0.45,
+      "legit_friction": 0.21428362530342468,
+      "ato_stopped": 0.8157894736842105
+    },
+    {
       "low_max": 0.5,
+      "legit_friction": 0.02184657678472202,
+      "ato_stopped": 0.6052631578947368
+    },
+    {
+      "low_max": 0.55,
       "legit_friction": 0.02184657678472202,
       "ato_stopped": 0.6052631578947368
     },
     {
       "low_max": 0.6,
       "legit_friction": 0.02178808528061299,
+      "ato_stopped": 0.6052631578947368
+    },
+    {
+      "low_max": 0.65,
+      "legit_friction": 0.02178808528061299,
+      "ato_stopped": 0.6052631578947368
+    },
+    {
+      "low_max": 0.7,
+      "legit_friction": 0.021729593776503964,
       "ato_stopped": 0.6052631578947368
     }
   ],

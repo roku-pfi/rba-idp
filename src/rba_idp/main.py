@@ -637,10 +637,12 @@ def create_app(
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = Query(default=50, ge=1, le=200),
+        include_load: bool = False,
     ) -> DecisionListResponse:
         service, op = _op(request, authorization, tenant, DECISIONS_READ)
         return service.list_decisions(
-            op, user_id=user_id, application_id=application_id, action=action, limit=limit
+            op, user_id=user_id, application_id=application_id, action=action, limit=limit,
+            include_load=include_load,
         )
 
     @app.get("/admin/api/decisions/summary", response_model=DecisionSummary)
@@ -649,9 +651,10 @@ def create_app(
         authorization: Auth = None,
         tenant: ActingTenant = None,
         days: int = Query(default=7, ge=1, le=31),
+        include_load: bool = False,
     ) -> DecisionSummary:
         service, op = _op(request, authorization, tenant, DECISIONS_READ)
-        return service.summarize_decisions(op, days)
+        return service.summarize_decisions(op, days, include_load)
 
     @app.get("/admin/api/decisions/{event_id}", response_model=DecisionRecord)
     def admin_get_decision(

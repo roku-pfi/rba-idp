@@ -342,6 +342,7 @@ body {
 .rk-sweep svg { display: block; overflow: visible; }
 .rk-current { stroke: var(--cds-text-secondary); stroke-width: 1; }
 .rk-crosshair { stroke: var(--cds-text-primary); stroke-width: 1; opacity: 0.6; }
+.rk-band { fill: var(--cds-layer-accent-01); opacity: 0.6; }
 .rk-dot { stroke: var(--cds-layer-01); stroke-width: 2; }
 .rk-sweep .rk-tooltip { transform: translateX(-50%); }
 
@@ -658,3 +659,16 @@ body {
 }
 
 .rk-alert { max-width: none; margin-bottom: 0.5rem; }
+
+// Carbon's overflow menu is 10rem wide and ellipses its items, which cut
+// "Passkey según el riesgo" and "Código de activación". Let it grow to fit.
+.cds--overflow-menu-options {
+  inline-size: max-content;
+  min-inline-size: 10rem;
+}
+.cds--overflow-menu-options__btn { max-inline-size: none; }
+.cds--overflow-menu-options__option-content {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}

@@ -1005,6 +1005,7 @@ class AdminService:
         application_id: str | None = None,
         action: Action | None = None,
         limit: int = 50,
+        include_load: bool = False,
     ) -> DecisionListResponse:
         try:
             return self._audit.list_decisions(
@@ -1013,6 +1014,7 @@ class AdminService:
                 application_id=application_id,
                 action=action,
                 limit=limit,
+                include_load=include_load,
             )
         except ControlPlaneUnavailable as exc:
             raise HTTPException(status_code=503, detail="decision store unavailable") from exc
@@ -1025,9 +1027,11 @@ class AdminService:
         except ControlPlaneUnavailable as exc:
             raise HTTPException(status_code=503, detail="decision store unavailable") from exc
 
-    def summarize_decisions(self, op: Operator, days: int = 7) -> DecisionSummary:
+    def summarize_decisions(
+        self, op: Operator, days: int = 7, include_load: bool = False
+    ) -> DecisionSummary:
         try:
-            return self._audit.summarize(op.tenant_id, days)
+            return self._audit.summarize(op.tenant_id, days, include_load)
         except ControlPlaneUnavailable as exc:
             raise HTTPException(status_code=503, detail="decision store unavailable") from exc
 

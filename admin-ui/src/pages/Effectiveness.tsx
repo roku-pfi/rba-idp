@@ -52,61 +52,75 @@ function RateBar({ rate, color, label }: { rate: Rate; color: string; label: str
   );
 }
 
-/** Friction and stopped as the LOW band's upper limit moves. One axis (%). */
+/** Friction and intrusions stopped as the LOW band's upper limit moves. One axis (%).
+ *  Drawn as steps: each value holds until the next limit sampled. */
 function Sweep({ points, current }: { points: Comparison["sweep_low_max"]; current: number }) {
   const [hover, setHover] = useState<number | null>(null);
   const w = 560;
-  const h = 220;
-  const pad = { top: 12, right: 92, bottom: 30, left: 40 };
+  const h = 230;
+  const pad = { top: 22, right: 16, bottom: 30, left: 40 };
   const pw = w - pad.left - pad.right;
   const ph = h - pad.top - pad.bottom;
   const xs = points.map((p) => p.low_max);
   const x = (v: number) => pad.left + ((v - xs[0]) / (xs[xs.length - 1] - xs[0])) * pw;
   const y = (v: number) => pad.top + ph - v * ph;
-  const line = (key: "legit_friction" | "ato_stopped") => points.map((p, i) => `${i ? "L" : "M"}${x(p.low_max)},${y(p[key])}`).join(" ");
-  const last = points[points.length - 1];
+  const step = (key: "legit_friction" | "ato_stopped") =>
+    points.map((p, i) => (i ? `H${x(p.low_max)}V${y(p[key])}` : `M${x(p.low_max)},${y(p[key])}`)).join("");
+  // The largest drop in friction: where a whole group of logins crosses into Bajo.
+  let jump = 1;
+  for (let i = 1; i < points.length; i++) {
+    const drop = points[i - 1].legit_friction - points[i].legit_friction;
+    if (drop > points[jump - 1].legit_friction - points[jump].legit_friction) jump = i;
+  }
+  const fmtCut = (v: number) => v.toLocaleString("es-AR", { minimumFractionDigits: 2 });
+  const ticks = xs.filter((_, i) => i % 2 === 1);
   return (
     <div className="rk-chart rk-sweep">
       <ul className="rk-legend" aria-hidden="true">
-        <li><span className="rk-key-line" style={{ background: STOPPED }} />Robos frenados</li>
+        <li><span className="rk-key-line" style={{ background: STOPPED }} />Intrusiones frenadas</li>
         <li><span className="rk-key-line" style={{ background: FRICTION }} />Fricción</li>
       </ul>
-      <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label="Robos frenados y fricción según el límite de Bajo">
+      <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label="Intrusiones frenadas y fricción según el límite de Bajo">
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <g key={t}>
             <line x1={pad.left} x2={pad.left + pw} y1={y(t)} y2={y(t)} className="rk-grid" />
             <text x={pad.left - 8} y={y(t)} className="rk-tick" textAnchor="end" dominantBaseline="middle">{t * 100} %</text>
           </g>
         ))}
-        {xs.map((v) => (
-          <text key={v} x={x(v)} y={h - 8} className="rk-tick" textAnchor="middle">{v.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</text>
+        {ticks.map((v) => (
+          <text key={v} x={x(v)} y={h - 8} className="rk-tick" textAnchor="middle">{fmtCut(v)}</text>
         ))}
+        {/* Where a user's first logins (no history) score: past it they enter without a step. */}
+        <rect x={x(points[jump - 1].low_max)} y={pad.top} width={x(points[jump].low_max) - x(points[jump - 1].low_max)} height={ph} className="rk-band" />
+        <text x={x(points[jump].low_max) + 4} y={pad.top - 8} className="rk-tick">primeros inicios</text>
         {/* The value in force, marked rather than coloured. */}
         <line x1={x(current)} x2={x(current)} y1={pad.top} y2={pad.top + ph} className="rk-current" />
-        <text x={x(current) + 4} y={pad.top + 10} className="rk-tick">actual</text>
-        <path d={line("ato_stopped")} fill="none" stroke={STOPPED} strokeWidth={2} strokeLinejoin="round" />
-        <path d={line("legit_friction")} fill="none" stroke={FRICTION} strokeWidth={2} strokeLinejoin="round" />
-        <text x={x(last.low_max) + 8} y={y(last.ato_stopped)} className="rk-tick" dominantBaseline="middle">Frenados</text>
-        <text x={x(last.low_max) + 8} y={y(last.legit_friction)} className="rk-tick" dominantBaseline="middle">Fricción</text>
+        <text x={x(current) - 4} y={pad.top - 8} className="rk-tick" textAnchor="end">actual {fmtCut(current)}</text>
+        <path d={step("ato_stopped")} fill="none" stroke={STOPPED} strokeWidth={2} />
+        <path d={step("legit_friction")} fill="none" stroke={FRICTION} strokeWidth={2} />
         {points.map((p, i) => (
           <g key={p.low_max} onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0}>
-            <rect x={x(p.low_max) - 20} y={pad.top} width={40} height={ph} fill="transparent" />
-            {hover === i && <line x1={x(p.low_max)} x2={x(p.low_max)} y1={pad.top} y2={pad.top + ph} className="rk-crosshair" />}
-            <circle cx={x(p.low_max)} cy={y(p.ato_stopped)} r={4} fill={STOPPED} className="rk-dot" />
-            <circle cx={x(p.low_max)} cy={y(p.legit_friction)} r={4} fill={FRICTION} className="rk-dot" />
+            <rect x={x(p.low_max) - pw / points.length / 2} y={pad.top} width={pw / points.length} height={ph} fill="transparent" />
+            {hover === i && (
+              <>
+                <line x1={x(p.low_max)} x2={x(p.low_max)} y1={pad.top} y2={pad.top + ph} className="rk-crosshair" />
+                <circle cx={x(p.low_max)} cy={y(p.ato_stopped)} r={4} fill={STOPPED} className="rk-dot" />
+                <circle cx={x(p.low_max)} cy={y(p.legit_friction)} r={4} fill={FRICTION} className="rk-dot" />
+              </>
+            )}
           </g>
         ))}
       </svg>
       {hover !== null && (
         <div className="rk-tooltip" style={{ left: `${(x(points[hover].low_max) / w) * 100}%` }} role="status">
-          <div className="rk-tooltip-title">Bajo hasta {points[hover].low_max.toLocaleString("es-AR", { minimumFractionDigits: 2 })}</div>
-          <div className="rk-tooltip-row"><span className="rk-key" style={{ background: STOPPED }} /><strong>{pct(points[hover].ato_stopped)}</strong><span>robos frenados</span></div>
+          <div className="rk-tooltip-title">Bajo hasta {fmtCut(points[hover].low_max)}</div>
+          <div className="rk-tooltip-row"><span className="rk-key" style={{ background: STOPPED }} /><strong>{pct(points[hover].ato_stopped)}</strong><span>intrusiones frenadas</span></div>
           <div className="rk-tooltip-row"><span className="rk-key" style={{ background: FRICTION }} /><strong>{pct(points[hover].legit_friction)}</strong><span>fricción</span></div>
         </div>
       )}
       <table className="cds--visually-hidden">
-        <caption>Robos frenados y fricción según el límite de Bajo</caption>
-        <thead><tr><th>Bajo hasta</th><th>Robos frenados</th><th>Fricción</th></tr></thead>
+        <caption>Intrusiones frenadas y fricción según el límite de Bajo</caption>
+        <thead><tr><th>Bajo hasta</th><th>Intrusiones frenadas</th><th>Fricción</th></tr></thead>
         <tbody>{points.map((p) => <tr key={p.low_max}><td>{p.low_max}</td><td>{pct(p.ato_stopped, 1)}</td><td>{pct(p.legit_friction, 1)}</td></tr>)}</tbody>
       </table>
     </div>
@@ -115,6 +129,14 @@ function Sweep({ points, current }: { points: Comparison["sweep_low_max"]; curre
 
 export function Effectiveness() {
   const [data, , loading] = useLoad(() => api<Comparison>("/admin/api/effectiveness").catch(() => null), null as Comparison | null);
+  // The tenant's own LOW limit, so the marker follows Política.
+  const [lowMax] = useLoad(
+    () =>
+      api<{ score_to_level: { max: number; level: string }[] }>("/admin/api/policy")
+        .then((p) => p.score_to_level.find((b) => b.level === "LOW")?.max ?? 0.4)
+        .catch(() => 0.4),
+    0.4,
+  );
   if (loading && !data) return <InlineLoading description="Cargando…" />;
   if (!data) return <PageHead title="Efectividad" sub="No disponible." />;
   const current = data.policies.adaptive_default;
@@ -124,13 +146,13 @@ export function Effectiveness() {
     <>
       <PageHead
         title="Efectividad"
-        sub={`Evaluación: ${fmt.count(data.meta.legit)} inicios legítimos y ${data.meta.ato} robos de cuenta reales`}
-        info="Cómo le habría ido a cada política con inicios de sesión reales que el motor nunca vio al entrenarse (Wiefling et al.). Todos los robos usaron la contraseña correcta: es el caso que el motor existe para frenar. Mismos números para todas las organizaciones."
+        sub={`Evaluación: ${fmt.count(data.meta.legit)} inicios legítimos y ${data.meta.ato} intrusiones reales (con la contraseña correcta)`}
+        info="Cómo le habría ido a cada política con inicios de sesión reales que el motor nunca vio al entrenarse (Wiefling et al.). Todas las intrusiones usaron la contraseña correcta: es el caso que el motor existe para frenar. Mismos números para todas las organizaciones."
       />
 
       <dl className="rk-metrics">
         <div>
-          <dt><Hint text={`${current.ato_stopped.k} de ${current.ato_stopped.n}. ${interval(current.ato_stopped)}. Pedir la passkey frena a quien no la tiene.`}>Robos frenados</Hint></dt>
+          <dt><Hint text={`${current.ato_stopped.k} de ${current.ato_stopped.n}. ${interval(current.ato_stopped)}. Pedir la passkey frena a quien no la tiene.`}>Intrusiones frenadas</Hint></dt>
           <dd>{pct(current.ato_stopped.rate)}</dd>
         </div>
         <div>
@@ -149,7 +171,7 @@ export function Effectiveness() {
           <div className="rk-eff-row rk-eff-head" role="row">
             <span role="columnheader">Política</span>
             <span role="columnheader"><Hint text="Inicios legítimos desafiados. La línea fina es el intervalo de confianza del 95 %.">Fricción</Hint></span>
-            <span role="columnheader"><Hint text="Robos de cuenta que no entraron. La línea fina es el intervalo de confianza del 95 %: con 38 casos es ancho.">Robos frenados</Hint></span>
+            <span role="columnheader"><Hint text="Tomas de control de cuenta (ATO) que no entraron: alguien con la contraseña correcta que no es el dueño. La línea fina es el intervalo de confianza del 95 %: con 38 casos es ancho.">Intrusiones frenadas</Hint></span>
             <span role="columnheader"><Hint text="Inicios legítimos que no pudieron entrar.">Bloqueos</Hint></span>
           </div>
           {ROWS.map((row) => {
@@ -161,7 +183,7 @@ export function Effectiveness() {
                   {row.current && <Tag size="sm" type="blue">Actual</Tag>}
                 </span>
                 <span role="cell"><RateBar rate={r.legit_friction} color={FRICTION} label="Fricción" /></span>
-                <span role="cell"><RateBar rate={r.ato_stopped} color={STOPPED} label="Robos frenados" /></span>
+                <span role="cell"><RateBar rate={r.ato_stopped} color={STOPPED} label="Intrusiones frenadas" /></span>
                 <span role="cell" className="rk-num">{pct(r.legit_blocked.rate, 2)}</span>
               </div>
             );
@@ -177,16 +199,16 @@ export function Effectiveness() {
       <div className="rk-home">
         <section className="rk-card">
           <h2 className="rk-card-title">
-            <Hint text="Subir el límite de Bajo deja entrar sin pasos extra a más inicios. Hasta 0,40 no se pierde ningún robo frenado; después cae de golpe.">Límite de «Bajo»</Hint>
+            <Hint text="Subir el límite de Bajo deja entrar sin pasos extra a más inicios. La franja marca los primeros inicios de cada usuario (sin historial): si entran en Bajo, dejan de pedir passkey y se pierden las intrusiones que los usaban.">Límite de «Bajo»</Hint>
           </h2>
-          <Sweep points={data.sweep_low_max} current={0.4} />
+          <Sweep points={data.sweep_low_max} current={lowMax} />
         </section>
         <section className="rk-card">
           <h2 className="rk-card-title">
             <Hint text="Inicios previos del usuario. El primer inicio no tiene historia contra la cual comparar: se desafía siempre.">Según el historial</Hint>
           </h2>
           <table className="rk-share rk-depth">
-            <thead><tr><th>Inicios previos</th><th>Fricción</th><th>Frenados</th></tr></thead>
+            <thead><tr><th>Inicios previos</th><th>Fricción</th><th>Intrusiones frenadas</th></tr></thead>
             <tbody>
               {data.adaptive_by_depth.map((row) => (
                 <tr key={row.depth}>
