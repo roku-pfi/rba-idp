@@ -130,6 +130,33 @@ def test_wrong_password_is_reported_to_the_pdp_but_not_enforced(
     assert call.country == "AR"
 
 
+@pytest.mark.parametrize("code", ["account_cooldown", "source_blocked"])
+def test_a_wrong_password_during_a_guard_block_is_answered_as_blocked(code: str) -> None:
+    """ADR-0045: once the account is paused or the IP blocked, every attempt says
+    so. Answering only the right password with a block would confirm it."""
+    from rba_contracts import Reason
+
+    reason = Reason(code=code, signal="failed_logins_own", detail="paused")
+    pdp = StubPdp(action=Action.BLOCK, risk_level=RiskLevel.CRITICAL, risk_score=0.9, reasons=[reason])
+    with client_for(pdp) as client:
+        wrong = client.post("/login", json={**LOGIN, "password": "wrong-password"}).json()
+        right = client.post("/login", json=LOGIN).json()
+    assert wrong["outcome"] == right["outcome"] == LoginOutcome.BLOCKED.value
+    assert not {"action", "risk_score", "risk_level"} & set(wrong)
+    public = [r["code"] for r in wrong.get("reasons", [])]
+    assert public == ([code] if code == "account_cooldown" else [])
+    assert public == [r["code"] for r in right.get("reasons", [])]
+
+
+def test_a_model_block_on_a_wrong_password_is_not_enforced() -> None:
+    """Only the guard's counters turn a wrong password into a block; a risky
+    score on a failed attempt still answers "incorrect"."""
+    pdp = StubPdp(action=Action.BLOCK, risk_level=RiskLevel.CRITICAL, risk_score=0.97)
+    with client_for(pdp) as client:
+        resp = client.post("/login", json={**LOGIN, "password": "wrong-password"})
+    assert resp.json() == {"outcome": LoginOutcome.INVALID_CREDENTIALS.value}
+
+
 def test_failed_login_report_can_be_disabled(pdp: StubPdp) -> None:
     settings = make_settings(report_failed_logins=False)
     with client_for(pdp, settings=settings) as client:

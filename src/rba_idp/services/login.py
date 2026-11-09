@@ -279,8 +279,20 @@ class LoginService:
         engine_off = policy is not None and policy.engine_mode is EngineMode.OFF
 
         if wrong_password_for is not None:
+            decision = None
             if not engine_off:
-                self._report_failed_login(wrong_password_for, attempt, ip, signals)
+                decision = self._report_failed_login(wrong_password_for, attempt, ip, signals)
+            if decision is not None and _guard_block(decision):
+                # The pause or the IP block answers every attempt alike, wrong
+                # password or right: answering only the right one with it
+                # would confirm the password to whoever is guessing.
+                return LoginResponse(
+                    outcome=LoginOutcome.BLOCKED,
+                    user_id=wrong_password_for,
+                    event_id=decision.event_id,
+                    action=decision.enforced_action,
+                    reasons=decision.reasons,
+                )
             return LoginResponse(outcome=LoginOutcome.INVALID_CREDENTIALS)
 
         if engine_off:
@@ -386,8 +398,12 @@ class LoginService:
         attempt: _Attempt,
         ip: str,
         signals,
-    ) -> None:
-        """Tell the PDP about a wrong password (ADR-0027). Best effort, never enforcing.
+    ) -> RiskEvaluateResponse | None:
+        """Tell the PDP about a wrong password (ADR-0027). Best effort.
+
+        The decision comes back so a guard block (an IP blocked, an account
+        paused) can answer this attempt as it would answer the right password;
+        nothing else in it is enforced.
 
         Without this the PDP only ever sees successes, so `failed_logins_last_24h`
         is structurally 0 and credential stuffing is invisible to the decision —
@@ -401,9 +417,9 @@ class LoginService:
         fails closed on purpose.
         """
         if not self._settings.report_failed_logins:
-            return
+            return None
         try:
-            self._pdp.evaluate(
+            return self._pdp.evaluate(
                 RiskEvaluateRequest(
                     event_id=uuid4(),
                     tenant_id=attempt.tenant_id,
@@ -424,6 +440,7 @@ class LoginService:
             )
         except Exception:
             logger.warning("failed-login report dropped for user_id=%s", user_id)
+            return None
 
     def _confirm_step_up(self, result: LoginResponse, tenant_id: str | None) -> None:
         """Tell the PDP the step-up was passed, so the profile learns this login.
@@ -867,3 +884,14 @@ class LoginService:
                 raise HTTPException(status_code=401, detail="missing or expired session")
             permissions = effective_permissions(session, user.user_id, row.application_id)
             return row, user, permissions
+
+
+# Reasons from the login guard (ADR-0045): counters on the source and on the
+# account, not the model. Only these turn a wrong password into a block.
+GUARD_BLOCK_CODES = frozenset({"source_blocked", "account_cooldown"})
+
+
+def _guard_block(decision: RiskEvaluateResponse) -> bool:
+    return decision.enforced_action is Action.BLOCK and any(
+        r.code in GUARD_BLOCK_CODES for r in decision.reasons
+    )
