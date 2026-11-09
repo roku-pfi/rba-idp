@@ -35,6 +35,8 @@ from rba_contracts import (
     Reason,
     RiskEvaluateRequest,
     RiskEvaluateResponse,
+    StoppedAttempt,
+    ChangePasswordRequest,
     RiskLevel,
     SessionResponse,
     SessionToken,
@@ -43,7 +45,7 @@ from rba_contracts import (
     base_action,
     outcome_from_action,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 from webauthn.helpers.exceptions import WebAuthnException
 
@@ -62,8 +64,9 @@ from rba_idp.db.models import (
 )
 from rba_idp.db.session import session_scope
 from rba_idp.devices import device_id
+from rba_idp.services import attempts as stopped_attempts
 from rba_idp.geo import resolve_login_signals, scored_ip
-from rba_idp.passwords import verify_password
+from rba_idp.passwords import hash_password, verify_password
 from rba_idp.pdp import PdpClient, PdpUnavailable
 from rba_idp.tenancy import TenantPolicyCache, tenant_for_operator_email
 from rba_idp.tokens import (
@@ -341,7 +344,11 @@ class LoginService:
 
         # The PDP already floors it; a fallback decision does not.
         return self._enforce(
-            user_id, attempt, _floor(decision.enforced_action, always_passkey), decision=decision
+            user_id,
+            attempt,
+            _floor(decision.enforced_action, always_passkey),
+            decision=decision,
+            country=signals.country,
         )
 
     def _degraded_decision(
@@ -614,10 +621,20 @@ class LoginService:
         action: Action,
         *,
         decision: RiskEvaluateResponse | None,
+        country: str | None = None,
     ) -> LoginResponse:
         """Apply ``action`` — the PDP's ``enforced_action``, or the base policy
         when the engine is off (``decision`` is then ``None``)."""
         session_token: SessionToken | None = None
+        seen: list[StoppedAttempt] = []
+        # The engine itself found this right-password login suspicious (not a
+        # "passkey siempre", not a fallback, not the owner's own pause).
+        suspicious = (
+            decision is not None
+            and not decision.fallback
+            and decision.action != Action.ALLOW
+            and not any(r.code == "account_cooldown" for r in decision.reasons)
+        )
         challenge_id: UUID | None = None
         redirect_to: str | None = None
         passkey_offer = False
@@ -639,6 +656,7 @@ class LoginService:
                 registered_redirect=attempt.registered_redirect,
                 may_enroll=passkey_offer,
             )
+            seen = self._unseen_attempts(user_id)
         elif action in (Action.REQUIRE_MFA, Action.REAUTHENTICATE):
             if not self._has_second_factor(user_id):
                 # ADR-0037: never an enrollment. The PDP has already recorded
@@ -652,6 +670,8 @@ class LoginService:
                     attempt.tenant_id,
                     user_id,
                 )
+                # Not recorded as an attempt: a person with no passkey yet is,
+                # nearly always, the owner on their first sign-in.
                 return LoginResponse(
                     outcome=LoginOutcome.SECOND_FACTOR_MISSING,
                     user_id=user_id,
@@ -661,6 +681,8 @@ class LoginService:
             challenge_id = self._create_challenge(
                 user_id, attempt.application_id, action, decision
             )
+            if suspicious:
+                self._record_stopped(user_id, country, "passkey", challenge_id=str(challenge_id))
             # RF-17: say "unusual" only when the engine asked for it, not when
             # the tenant always asks for a passkey or the engine is down.
             unusual = (
@@ -668,6 +690,8 @@ class LoginService:
                 and not decision.fallback
                 and decision.action != Action.ALLOW
             )
+        elif action == Action.BLOCK and suspicious:
+            self._record_stopped(user_id, country, "blocked")
 
         return LoginResponse(
             outcome=outcome_from_action(action),
@@ -682,7 +706,20 @@ class LoginService:
             redirect_to=redirect_to,
             passkey_offer=passkey_offer,
             unusual=unusual,
+            attempts=seen,
         )
+
+    def _record_stopped(
+        self, user_id: str, country: str | None, stopped_by: str, *, challenge_id: str | None = None
+    ) -> None:
+        with session_scope(self._session_factory) as session:
+            stopped_attempts.record(
+                session, user_id=user_id, country=country, stopped_by=stopped_by, challenge_id=challenge_id
+            )
+
+    def _unseen_attempts(self, user_id: str) -> list[StoppedAttempt]:
+        with session_scope(self._session_factory) as session:
+            return stopped_attempts.take_unseen(session, user_id, datetime.now(timezone.utc))
 
     def _has_passkey(self, user_id: str) -> bool:
         with session_scope(self._session_factory) as session:
@@ -844,6 +881,10 @@ class LoginService:
         app = session.get(Application, challenge.application_id)
         registered_redirect = app.redirect_uri if app is not None else None
         challenge.consumed_at = now
+        # Passed: whoever typed the password holds the passkey, so it was not
+        # an attempt to tell the owner about.
+        stopped_attempts.passed(session, challenge.challenge_id)
+        seen = stopped_attempts.take_unseen(session, challenge.user_id, now)
         token = self._persist_session(
             session, challenge.user_id, challenge.application_id, now
         )
@@ -861,6 +902,7 @@ class LoginService:
             **_challenge_risk(challenge),
             session=token,
             redirect_to=redirect_to,
+            attempts=seen,
         )
 
     def load_session(
@@ -884,6 +926,35 @@ class LoginService:
                 raise HTTPException(status_code=401, detail="missing or expired session")
             permissions = effective_permissions(session, user.user_id, row.application_id)
             return row, user, permissions
+
+    def change_password(self, authorization: str | None, body: ChangePasswordRequest) -> None:
+        """The owner changes their password from a live session (contracts 0.22.0).
+
+        The current password is asked again: a session left open must not be
+        enough to take the account. Every other session of the user ends, so
+        whoever knew the old password and got in somewhere is signed out.
+        """
+        raw = bearer_token(authorization)
+        if raw is None:
+            raise HTTPException(status_code=401, detail="missing or expired session")
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            current = hash_session_token(raw)
+            row = session.get(IdpSession, current)
+            if row is None or _as_utc(row.expires_at) <= now:
+                raise HTTPException(status_code=401, detail="missing or expired session")
+            user = session.get(User, row.user_id)
+            if user is None or not user.enabled:
+                raise HTTPException(status_code=401, detail="missing or expired session")
+            if not verify_password(body.current_password, user.password_hash):
+                raise HTTPException(status_code=403, detail="wrong current password")
+            if body.new_password == body.current_password:
+                raise HTTPException(status_code=422, detail="the new password is the current one")
+            user.password_hash = hash_password(body.new_password)
+            session.execute(
+                delete(IdpSession).where(IdpSession.user_id == user.user_id, IdpSession.token_hash != current)
+            )
+            logger.info("password changed by its owner user_id=%s", user.user_id)
 
 
 # Reasons from the login guard (ADR-0045): counters on the source and on the

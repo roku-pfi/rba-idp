@@ -138,6 +138,31 @@
           <p class="back"><a href="#" id="offer-skip">Ahora no</a></p>
         </section>
 
+        <section id="panel-attempts" hidden>
+          <h1>Alguien intentó ingresar a tu cuenta</h1>
+          <p class="lede">Usó tu contraseña y no pudo entrar.</p>
+          <dl class="facts" id="attempts-facts"></dl>
+          <p class="hint">Si no fuiste vos, cambiá tu contraseña.</p>
+          <button type="button" id="attempts-change">Cambiar contraseña</button>
+          <p class="back"><a href="#" id="attempts-skip">Fui yo / Ahora no</a></p>
+        </section>
+
+        <section id="panel-password" hidden>
+          <h1>Cambiá tu contraseña</h1>
+          <form id="form-password">
+            <label for="current-password">Contraseña actual</label>
+            <input id="current-password" type="password" autocomplete="current-password" required>
+            <label for="new-password">Nueva contraseña</label>
+            <input id="new-password" type="password" autocomplete="new-password" minlength="8" required>
+            <label for="new-password-again">Repetí la nueva</label>
+            <input id="new-password-again" type="password" autocomplete="new-password" minlength="8" required>
+            <p class="form-error" id="password-error" hidden></p>
+            <button type="submit" id="password-submit">Cambiar contraseña</button>
+          </form>
+          <p class="hint" id="password-done" hidden>Listo. Cerramos tus otras sesiones.</p>
+          <p class="back"><a href="#" id="password-skip">Ahora no</a></p>
+        </section>
+
         <section id="panel-session" hidden>
           <h1>Sesión iniciada</h1>
           <p class="lede" id="session-lede"></p>

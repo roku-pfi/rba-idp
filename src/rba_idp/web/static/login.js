@@ -13,6 +13,8 @@
     nofactor: document.getElementById("panel-nofactor"),
     enroll: document.getElementById("panel-enroll"),
     offer: document.getElementById("panel-offer"),
+    attempts: document.getElementById("panel-attempts"),
+    password: document.getElementById("panel-password"),
     unavailable: document.getElementById("panel-unavailable"),
   };
 
@@ -123,6 +125,13 @@
     }
     if (outcome === "AUTHENTICATED" && body.session?.token) {
       storeSession(body.session.token);
+      if (body.attempts && body.attempts.length) {
+        // Someone got this password right since the last visit and was
+        // stopped: say so before going on, once.
+        pendingLogin = body;
+        showAttempts(body.attempts);
+        return;
+      }
       if (body.passkey_offer && window.PublicKeyCredential) {
         // A usual-context login of a user with no passkey: the one moment
         // (besides an activation code) a passkey may be added.
@@ -199,6 +208,38 @@
     } finally {
       button.disabled = offerKey === null;
     }
+  }
+
+  const COUNTRY = (() => {
+    try {
+      return new Intl.DisplayNames(["es"], { type: "region" });
+    } catch {
+      return null;
+    }
+  })();
+  const WHEN = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+  function showAttempts(attempts) {
+    const facts = document.getElementById("attempts-facts");
+    facts.replaceChildren();
+    // One line per minute, place and outcome: a burst reads as one attempt, ×n.
+    const lines = [];
+    attempts.forEach((a) => {
+      const when = WHEN.format(new Date(a.occurred_at));
+      const last = lines[lines.length - 1];
+      if (last && last.when === when && last.country === a.country && last.by === a.stopped_by) last.n += 1;
+      else lines.push({ when, country: a.country, by: a.stopped_by, n: 1 });
+    });
+    lines.slice(0, 4).forEach((line) => {
+      const dt = document.createElement("dt");
+      dt.textContent = line.when;
+      const dd = document.createElement("dd");
+      const where = line.country ? (COUNTRY?.of(line.country) ?? line.country) : "Origen desconocido";
+      const what = line.by === "passkey" ? "le pedimos tu passkey" : "lo bloqueamos";
+      dd.textContent = `${where} · ${what}${line.n > 1 ? ` (${line.n} veces)` : ""}`;
+      facts.append(dt, dd);
+    });
+    show("attempts");
   }
 
   function continueAfterLogin(body) {
@@ -333,6 +374,67 @@
           ? "El dispositivo no creó la passkey. Tocá de nuevo para reintentar."
           : "No se pudo crear la passkey. Pedí un código nuevo."
       );
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById("attempts-skip").addEventListener("click", (event) => {
+    event.preventDefault();
+    if (pendingLogin) continueAfterLogin(pendingLogin);
+  });
+
+  document.getElementById("attempts-change").addEventListener("click", () => {
+    setError("password-error", "");
+    document.getElementById("form-password").reset();
+    document.getElementById("form-password").hidden = false;
+    document.getElementById("password-done").hidden = true;
+    show("password");
+    document.getElementById("current-password").focus();
+  });
+
+  document.getElementById("password-skip").addEventListener("click", (event) => {
+    event.preventDefault();
+    if (pendingLogin) continueAfterLogin(pendingLogin);
+  });
+
+  document.getElementById("form-password").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const current = document.getElementById("current-password").value;
+    const next = document.getElementById("new-password").value;
+    if (next !== document.getElementById("new-password-again").value) {
+      setError("password-error", "Las contraseñas nuevas no coinciden.");
+      return;
+    }
+    if (next === current) {
+      setError("password-error", "Elegí una contraseña distinta de la actual.");
+      return;
+    }
+    const button = document.getElementById("password-submit");
+    button.disabled = true;
+    setError("password-error", "");
+    try {
+      const resp = await fetch("/account/password", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeader() },
+        body: JSON.stringify({ current_password: current, new_password: next }),
+      });
+      if (resp.status === 204) {
+        document.getElementById("form-password").hidden = true;
+        document.getElementById("password-done").hidden = false;
+        setTimeout(() => pendingLogin && continueAfterLogin(pendingLogin), 1500);
+        return;
+      }
+      setError(
+        "password-error",
+        resp.status === 403
+          ? "La contraseña actual no es correcta."
+          : resp.status === 422
+            ? "La nueva contraseña necesita al menos 8 caracteres."
+            : "No se pudo cambiar. Probá de nuevo.",
+      );
+    } catch {
+      setError("password-error", "Sin conexión con el servidor. Probá de nuevo.");
     } finally {
       button.disabled = false;
     }

@@ -345,3 +345,25 @@ class AuthCode(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class StoppedAttemptRow(Base):
+    """A login with the user's right password that was stopped (contracts 0.22.0).
+
+    Written when the engine asked an unusual login for the passkey (removed if
+    the passkey is then passed: it was the owner) or when a right password was
+    refused outright. Shown to the owner once, on their next sign-in, so they
+    can change the password.
+    """
+
+    __tablename__ = "stopped_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    stopped_by: Mapped[str] = mapped_column(String(16), nullable=False)  # passkey | blocked
+    challenge_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    shown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

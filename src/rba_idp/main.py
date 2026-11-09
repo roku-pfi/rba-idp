@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from rba_contracts import (
+    ChangePasswordRequest,
     DecisionSummary,
     Action,
     ActivationCodeResponse,
@@ -324,6 +325,15 @@ def create_app(
         authorization: Annotated[str | None, Header()] = None,
     ) -> SessionResponse:
         return _run(request, lambda svc: svc.get_session(authorization))
+
+    @app.post("/account/password", status_code=204)
+    def change_password(
+        body: ChangePasswordRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _run(request, lambda svc: svc.change_password(authorization, body))
+        return Response(status_code=204)
 
     @app.post("/logout", status_code=204)
     def logout(
