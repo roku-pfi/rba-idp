@@ -115,3 +115,44 @@ def test_no_passkey_yet_is_not_an_attempt() -> None:
     with client_for(pdp, settings=test_settings(mock_otp_enabled=False)) as client:
         assert client.post("/login", json=TOKYO).json()["outcome"] == LoginOutcome.SECOND_FACTOR_MISSING.value
         assert _sign_in(client, pdp).get("attempts", []) == []
+
+
+def _age_attempts(client, seconds: int) -> None:
+    from rba_idp.db.models import StoppedAttemptRow
+
+    with client.app.state.session_factory() as session:
+        for row in session.query(StoppedAttemptRow).all():
+            row.occurred_at = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+        session.commit()
+
+
+def test_a_signed_in_app_sees_attempts_while_the_user_is_in() -> None:
+    """The owner is in the bank; someone tries from Tokyo. The bank's banner
+    shows it after the grace minute, until the owner dismisses it."""
+    pdp = StubPdp()
+    with client_for(pdp) as client:
+        auth = {"Authorization": f"Bearer {_sign_in(client, pdp)['session']['token']}"}
+        pdp.action, pdp.risk_level = Action.REAUTHENTICATE, RiskLevel.CRITICAL
+        client.post("/login", json=TOKYO)
+        assert client.get("/session/attempts", headers=auth).json() == []  # may still be the owner
+        _age_attempts(client, 61)
+        [attempt] = client.get("/session/attempts", headers=auth).json()
+        assert attempt["country"] == "JP"
+        assert client.get("/session/attempts", headers=auth).json() == [attempt]  # stays until dismissed
+        seen = client.post("/session/attempts/seen", headers=auth, params={"up_to": attempt["occurred_at"]})
+        assert seen.status_code == 204
+        assert client.get("/session/attempts", headers=auth).json() == []
+        assert client.get("/session/attempts").status_code == 401
+
+
+def test_a_refusal_shows_at_once_and_a_password_change_clears_it() -> None:
+    blocked = Reason(code="source_blocked", signal="ip_address", detail="blocked")
+    pdp = StubPdp()
+    with client_for(pdp) as client:
+        auth = {"Authorization": f"Bearer {_sign_in(client, pdp)['session']['token']}"}
+        pdp.action, pdp.reasons = Action.BLOCK, [blocked]
+        client.post("/login", json=TOKYO)
+        assert len(client.get("/session/attempts", headers=auth).json()) == 1
+        client.post("/account/password", headers=auth,
+                    json={"current_password": LOGIN["password"], "new_password": "otra-clave-123"})
+        assert client.get("/session/attempts", headers=auth).json() == []

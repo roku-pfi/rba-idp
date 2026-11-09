@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from rba_contracts import (
     ChangePasswordRequest,
+    StoppedAttempt,
     DecisionSummary,
     Action,
     ActivationCodeResponse,
@@ -325,6 +326,22 @@ def create_app(
         authorization: Annotated[str | None, Header()] = None,
     ) -> SessionResponse:
         return _run(request, lambda svc: svc.get_session(authorization))
+
+    @app.get("/session/attempts", response_model=list[StoppedAttempt])
+    def session_attempts(
+        request: Request, authorization: Annotated[str | None, Header()] = None
+    ) -> list[StoppedAttempt]:
+        """Stopped attempts on the right password, for the app's banner."""
+        return _run(request, lambda svc: svc.session_attempts(authorization))
+
+    @app.post("/session/attempts/seen", status_code=204)
+    def dismiss_attempts(
+        request: Request,
+        up_to: datetime,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        _run(request, lambda svc: svc.dismiss_attempts(authorization, up_to))
+        return Response(status_code=204)
 
     @app.post("/account/password", status_code=204)
     def change_password(

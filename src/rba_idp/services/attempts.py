@@ -7,7 +7,7 @@ sign-in, once, with where and when, and offered a password change.
 
 A step-up counts only once it is clearly not the owner's: if the passkey is
 then passed the row is removed (it was them), and an open one is not shown
-until its challenge has expired. "Passkey siempre" step-ups are not recorded:
+for a minute (GRACE_SECONDS) while its challenge is still open. "Passkey siempre" step-ups are not recorded:
 they say nothing about who typed the password.
 """
 
@@ -51,26 +51,51 @@ def passed(session: Session, challenge_id: str) -> None:
     session.execute(delete(StoppedAttemptRow).where(StoppedAttemptRow.challenge_id == challenge_id))
 
 
-def take_unseen(session: Session, user_id: str, now: datetime) -> list[StoppedAttempt]:
-    """The attempts the owner has not been told about, marked as told."""
+# A step-up left unanswered this long is not the owner finishing on another
+# device: a passkey prompt takes seconds. Refusals are shown at once.
+GRACE_SECONDS = 60
+
+
+def _visible(session: Session, user_id: str, now: datetime) -> list[StoppedAttemptRow]:
     rows = session.scalars(
         select(StoppedAttemptRow)
         .where(StoppedAttemptRow.user_id == user_id, StoppedAttemptRow.shown_at.is_(None))
         .order_by(StoppedAttemptRow.occurred_at.desc())
     ).all()
-    out: list[StoppedAttempt] = []
+    out = []
     for row in rows:
         if row.challenge_id is not None:
             challenge = session.get(MfaChallenge, row.challenge_id)
-            # Still open: it may be the owner, on another tab or device.
-            if challenge is not None and challenge.consumed_at is None and _utc(challenge.expires_at) > now:
+            still_open = challenge is not None and challenge.consumed_at is None and _utc(challenge.expires_at) > now
+            if still_open and (now - _utc(row.occurred_at)).total_seconds() < GRACE_SECONDS:
                 continue
-        row.shown_at = now
-        out.append(
-            StoppedAttempt(
-                occurred_at=_utc(row.occurred_at),
-                country=row.country,
-                stopped_by=row.stopped_by,  # type: ignore[arg-type]
-            )
-        )
+        out.append(row)
     return out
+
+
+def _public(row: StoppedAttemptRow) -> StoppedAttempt:
+    return StoppedAttempt(
+        occurred_at=_utc(row.occurred_at),
+        country=row.country,
+        stopped_by=row.stopped_by,  # type: ignore[arg-type]
+    )
+
+
+def unseen(session: Session, user_id: str, now: datetime) -> list[StoppedAttempt]:
+    """What a signed-in app shows in its banner; stays until dismissed."""
+    return [_public(row) for row in _visible(session, user_id, now)]
+
+
+def mark_seen(session: Session, user_id: str, up_to: datetime, now: datetime) -> None:
+    """Dismissed up to ``up_to`` (the newest the person saw; later ones stay)."""
+    for row in _visible(session, user_id, now):
+        if _utc(row.occurred_at) <= _utc(up_to):
+            row.shown_at = now
+
+
+def take_unseen(session: Session, user_id: str, now: datetime) -> list[StoppedAttempt]:
+    """On sign-in: the attempts not yet told, marked as told (shown once)."""
+    rows = _visible(session, user_id, now)
+    for row in rows:
+        row.shown_at = now
+    return [_public(row) for row in rows]

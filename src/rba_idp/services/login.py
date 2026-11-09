@@ -927,6 +927,29 @@ class LoginService:
             permissions = effective_permissions(session, user.user_id, row.application_id)
             return row, user, permissions
 
+    def _session_user(self, session: Session, authorization: str | None, now: datetime) -> User:
+        raw = bearer_token(authorization)
+        row = session.get(IdpSession, hash_session_token(raw)) if raw is not None else None
+        if row is None or _as_utc(row.expires_at) <= now:
+            raise HTTPException(status_code=401, detail="missing or expired session")
+        user = session.get(User, row.user_id)
+        if user is None or not user.enabled:
+            raise HTTPException(status_code=401, detail="missing or expired session")
+        return user
+
+    def session_attempts(self, authorization: str | None) -> list[StoppedAttempt]:
+        """For an app the user is signed in to: attempts to show in a banner now."""
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            user = self._session_user(session, authorization, now)
+            return stopped_attempts.unseen(session, user.user_id, now)
+
+    def dismiss_attempts(self, authorization: str | None, up_to: datetime) -> None:
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            user = self._session_user(session, authorization, now)
+            stopped_attempts.mark_seen(session, user.user_id, up_to, now)
+
     def change_password(self, authorization: str | None, body: ChangePasswordRequest) -> None:
         """The owner changes their password from a live session (contracts 0.22.0).
 
@@ -951,6 +974,8 @@ class LoginService:
             if body.new_password == body.current_password:
                 raise HTTPException(status_code=422, detail="the new password is the current one")
             user.password_hash = hash_password(body.new_password)
+            # The password the attempts used no longer works: nothing left to warn about.
+            stopped_attempts.mark_seen(session, user.user_id, now, now)
             session.execute(
                 delete(IdpSession).where(IdpSession.user_id == user.user_id, IdpSession.token_hash != current)
             )
