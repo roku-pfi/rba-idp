@@ -217,7 +217,7 @@
       return null;
     }
   })();
-  const WHEN = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const WHEN = new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
   function showAttempts(attempts) {
     const facts = document.getElementById("attempts-facts");
