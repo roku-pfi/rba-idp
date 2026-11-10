@@ -109,3 +109,21 @@ def test_locally_an_override_that_changes_the_country_is_marked_simulated() -> N
         client.post("/login", json={**home, "country": "AR"})  # what the address says anyway
         client.post("/login", json={**home, "country": "JP"})
     assert [(c.country, c.simulated) for c in pdp.calls] == [("AR", False), ("JP", True)]
+
+
+def test_a_ticket_can_carry_another_address() -> None:
+    """A login from a network the user never used (contracts 0.26.0): the
+    request's own address would be the familiar one."""
+    pdp = StubPdp()
+    with _cloudlike(pdp) as client:
+        ticket = client.post(
+            "/simulation/ticket", json={"country": "AR", "asn": "22927", "ip_address": "192.0.2.44"}, headers=HEADER
+        ).json()["ticket"]
+        page = _boot(client.get("/login", params={"application_id": "roku-bank-web", "simulation_ticket": ticket}).text)
+        assert page["ip_address"] == "192.0.2.44"
+        client.post("/login", json={**LOGIN, "simulation_ticket": ticket})
+        # Without a ticket the body's address is still ignored.
+        client.post("/login", json={**LOGIN, "ip_address": "192.0.2.44"})
+    first, second = pdp.calls[0], pdp.calls[1]
+    assert (first.ip_address, first.asn, first.simulated) == ("192.0.2.44", "22927", True)
+    assert second.ip_address != "192.0.2.44"

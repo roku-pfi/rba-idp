@@ -319,6 +319,7 @@ def create_app(
             configured,
             country=body.country.upper() if body.country else None,
             asn=body.asn,
+            ip_address=body.ip_address,
             ttl_seconds=settings.simulation_ttl_seconds,
         )
         return SimulationTicketResponse(
@@ -808,7 +809,7 @@ def _observed(body, request: Request):
         return body
     ticket = verify_ticket(settings.simulation_secret, getattr(body, "simulation_ticket", None))
     update = {
-        "ip_address": client_ip(request, settings),
+        "ip_address": (ticket.ip_address if ticket and ticket.ip_address else client_ip(request, settings)),
         "country": ticket.country if ticket else None,
         "asn": ticket.asn if ticket else None,
     }

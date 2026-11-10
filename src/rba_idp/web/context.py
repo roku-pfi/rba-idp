@@ -119,6 +119,8 @@ def hosted_boot(
         country, asn = (ticket.country, ticket.asn) if ticket else (None, None)
         if ticket is None:
             ticket_text = None
+        elif ticket.ip_address:
+            ip = ticket.ip_address
     signals = resolve_login_signals(ip, country=country, asn=asn)
     requested = request.query_params.get("redirect_uri")
     if registered and (not requested or requested == registered):

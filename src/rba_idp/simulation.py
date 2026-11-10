@@ -6,7 +6,9 @@ same override would let anyone claim the victim's home country. So where client
 signals are not trusted, an override must arrive inside a ticket: HMAC-SHA256
 over the values and an expiry, minted by ``POST /simulation/ticket`` for a
 caller holding ``SIMULATION_SECRET`` (the presenter panel, D-1). The decision is
-recorded as ``simulated``.
+recorded as ``simulated``. A ticket may also carry an address (contracts
+0.26.0): a login from a network the user never used, which the request's own
+address cannot show.
 
 Format: ``base64url(json payload) + "." + base64url(hmac)``.
 """
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 class SimulatedSignals:
     country: str | None
     asn: str | None
+    ip_address: str | None = None
 
 
 def _b64(data: bytes) -> str:
@@ -40,10 +43,14 @@ def _sign(secret: str, payload: str) -> str:
 
 
 def issue_ticket(
-    secret: str, *, country: str | None, asn: str | None, ttl_seconds: int, now: float | None = None
+    secret: str, *, country: str | None, asn: str | None, ttl_seconds: int,
+    ip_address: str | None = None, now: float | None = None,
 ) -> tuple[str, float]:
     expires = int((now if now is not None else time.time()) + ttl_seconds)
-    payload = _b64(json.dumps({"c": country, "a": asn, "exp": expires}, separators=(",", ":")).encode())
+    claims = {"c": country, "a": asn, "exp": expires}
+    if ip_address:
+        claims["i"] = ip_address
+    payload = _b64(json.dumps(claims, separators=(",", ":")).encode())
     return f"{payload}.{_sign(secret, payload)}", float(expires)
 
 
@@ -61,4 +68,4 @@ def verify_ticket(secret: str, ticket: str | None, *, now: float | None = None) 
         return None
     if expires <= (now if now is not None else time.time()):
         return None
-    return SimulatedSignals(country=data.get("c"), asn=data.get("a"))
+    return SimulatedSignals(country=data.get("c"), asn=data.get("a"), ip_address=data.get("i"))
