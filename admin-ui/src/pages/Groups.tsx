@@ -424,7 +424,9 @@ export function Groups({ itemId }: { itemId: string | null }) {
                     </TableRow>
                   )}
                   {tableRows.map((row) => {
-                    const group = byId.get(row.id)!;
+                    // Carbon keeps last render's rows for one pass after the data changes.
+                    const group = byId.get(row.id);
+                    if (!group) return null;
                     const { key, ...props } = getRowProps({ row });
                     return (
                       <TableRow

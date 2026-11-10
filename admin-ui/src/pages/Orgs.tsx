@@ -345,7 +345,9 @@ export function Orgs({ itemId }: { itemId: string | null }) {
                 </TableHead>
                 <TableBody>
                   {tableRows.map((row) => {
-                    const tenant = byId.get(row.id)!;
+                    // Carbon keeps last render's rows for one pass after the data changes.
+                    const tenant = byId.get(row.id);
+                    if (!tenant) return null;
                     const { key, ...props } = getRowProps({ row });
                     return (
                       <TableRow

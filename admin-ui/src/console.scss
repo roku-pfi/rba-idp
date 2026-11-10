@@ -672,3 +672,10 @@ body {
   text-overflow: clip;
   white-space: nowrap;
 }
+
+// Efectividad, per organization: three policies, two columns.
+.rk-vs-row { grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr) 9rem; }
+.rk-vs-sub { display: block; @include type-style('helper-text-01'); margin-top: 0.25rem; }
+.rk-vs-in { @include type-style('heading-03'); }
+.rk-vs-in.is-bad { color: var(--cds-support-error); }
+.rk-eff-public { margin-top: 2rem; }

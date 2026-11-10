@@ -28,6 +28,7 @@ import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel
 from rba_contracts import (
+    DecisionImpact,
     DecisionSummary,
     Action,
     ActivationCodeResponse,
@@ -1032,6 +1033,12 @@ class AdminService:
     ) -> DecisionSummary:
         try:
             return self._audit.summarize(op.tenant_id, days, include_load)
+        except ControlPlaneUnavailable as exc:
+            raise HTTPException(status_code=503, detail="decision store unavailable") from exc
+
+    def impact(self, op: Operator, days: int = 30, utc_offset_minutes: int = 0) -> DecisionImpact:
+        try:
+            return self._audit.impact(op.tenant_id, days, utc_offset_minutes)
         except ControlPlaneUnavailable as exc:
             raise HTTPException(status_code=503, detail="decision store unavailable") from exc
 

@@ -182,6 +182,17 @@ class StubAudit:
                 return row
         raise AuditNotFound(str(event_id))
 
+    def impact(self, tenant_id: str, days: int = 30, utc_offset_minutes: int = 0):
+        from rba_contracts import DecisionImpact
+
+        self.tenants_asked.append(tenant_id)
+        rows = [row for row in self.items if row.tenant_id == tenant_id]
+        return DecisionImpact(
+            since=datetime.now(timezone.utc), right_password=len(rows), allowed=len(rows),
+            verified=0, stopped_step_up=0, stopped_blocked=0, wrong_password=0,
+            wrong_password_from_blocked_ip=0, days=[],
+        )
+
     def summarize(self, tenant_id: str, days: int = 7, include_load: bool = False) -> DecisionSummary:
         rows = [row for row in self.items if row.tenant_id == tenant_id]
         by_action: dict[str, int] = {}
@@ -201,6 +212,9 @@ class FailingAudit:
         raise ControlPlaneUnavailable("connection refused")
 
     def summarize(self, tenant_id, days=7, include_load=False):
+        raise ControlPlaneUnavailable("connection refused")
+
+    def impact(self, tenant_id, days=30, utc_offset_minutes=0):
         raise ControlPlaneUnavailable("connection refused")
 
 

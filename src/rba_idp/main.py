@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from rba_contracts import (
+    DecisionImpact,
     ChangePasswordRequest,
     StoppedAttempt,
     DecisionSummary,
@@ -682,6 +683,18 @@ def create_app(
     ) -> DecisionSummary:
         service, op = _op(request, authorization, tenant, DECISIONS_READ)
         return service.summarize_decisions(op, days, include_load)
+
+    @app.get("/admin/api/impact", response_model=DecisionImpact)
+    def admin_impact(
+        request: Request,
+        authorization: Auth = None,
+        tenant: ActingTenant = None,
+        days: int = Query(default=30, ge=1, le=90),
+        utc_offset_minutes: int = Query(default=0, ge=-840, le=840),
+    ) -> DecisionImpact:
+        """Efectividad: what the engine did for this organization's logins."""
+        service, op = _op(request, authorization, tenant, DECISIONS_READ)
+        return service.impact(op, days, utc_offset_minutes)
 
     @app.get("/admin/api/decisions/{event_id}", response_model=DecisionRecord)
     def admin_get_decision(

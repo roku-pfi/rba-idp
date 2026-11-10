@@ -232,7 +232,9 @@ export function Roles({ itemId }: { itemId: string | null }) {
                     </TableRow>
                   )}
                   {tableRows.map((row) => {
-                    const role = byId.get(row.id)!;
+                    // Carbon keeps last render's rows for one pass after the data changes.
+                    const role = byId.get(row.id);
+                    if (!role) return null;
                     const { key, ...props } = getRowProps({ row });
                     return (
                       <TableRow

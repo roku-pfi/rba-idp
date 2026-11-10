@@ -335,3 +335,13 @@ def test_the_effectiveness_numbers_are_served_to_operators(client: TestClient) -
     assert body["meta"]["ato"] == 38
     # freeman-0.4.0 (finding 2026-10-23-hierarchical): 31/38 at 21% friction.
     assert body["policies"]["adaptive_default"]["ato_stopped"]["k"] == 31
+
+
+def test_admin_impact_is_the_operators_tenant() -> None:
+    audit = StubAudit([DECISION])
+    with client_for(StubPdp(), audit_client=audit) as client:
+        body = client.get("/admin/api/impact", headers=_auth(_admin_token(client))).json()
+        assert body["right_password"] == 1
+        assert audit.tenants_asked[-1] == "roku-bank"
+    with client_for(StubPdp(), audit_client=FailingAudit()) as client:
+        assert client.get("/admin/api/impact", headers=_auth(_admin_token(client))).status_code == 503

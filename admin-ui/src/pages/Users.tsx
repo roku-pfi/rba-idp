@@ -235,7 +235,9 @@ export function Users() {
                   </TableRow>
                 )}
                 {tableRows.map((row) => {
-                  const user = byId.get(row.id)!;
+                  // Carbon keeps last render's rows for one pass after the data changes.
+                    const user = byId.get(row.id);
+                    if (!user) return null;
                   const { key, ...props } = getRowProps({ row });
                   return (
                     <TableRow key={key} {...props}>

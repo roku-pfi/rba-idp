@@ -11,6 +11,7 @@ from uuid import UUID
 
 import httpx
 from rba_contracts import (
+    DecisionImpact,
     DecisionSummary,
     Action,
     DecisionListResponse,
@@ -59,6 +60,8 @@ class AuditClient(Protocol):
     def get_decision(self, tenant_id: str, event_id: UUID) -> DecisionRecord: ...
 
     def summarize(self, tenant_id: str, days: int = 7, include_load: bool = False) -> DecisionSummary: ...
+
+    def impact(self, tenant_id: str, days: int = 30, utc_offset_minutes: int = 0) -> DecisionImpact: ...
 
 
 class HttpPolicyClient:
@@ -168,6 +171,19 @@ class HttpAuditClient:
             raise ControlPlaneUnavailable(str(exc)) from exc
         except ValueError as exc:
             raise ControlPlaneUnavailable("invalid summary response") from exc
+
+    def impact(self, tenant_id: str, days: int = 30, utc_offset_minutes: int = 0) -> DecisionImpact:
+        try:
+            response = self._client.get(
+                "/decisions/impact",
+                params={"tenant_id": tenant_id, "days": days, "utc_offset_minutes": utc_offset_minutes},
+            )
+            response.raise_for_status()
+            return DecisionImpact.model_validate(response.json())
+        except httpx.HTTPError as exc:
+            raise ControlPlaneUnavailable(str(exc)) from exc
+        except ValueError as exc:
+            raise ControlPlaneUnavailable("invalid impact response") from exc
 
     def get_decision(self, tenant_id: str, event_id: UUID) -> DecisionRecord:
         try:

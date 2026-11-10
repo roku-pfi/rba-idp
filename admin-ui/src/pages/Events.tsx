@@ -559,7 +559,9 @@ export function Events({ itemId }: { itemId: string | null }) {
                     </TableRow>
                   )}
                   {tableRows.map((row) => {
-                    const item = byId.get(row.id)!;
+                    // Carbon keeps last render's rows for one pass after the data changes.
+                    const item = byId.get(row.id);
+                    if (!item) return null;
                     const { key, ...props } = getRowProps({ row });
                     return [
                       <TableExpandRow key={key} {...props} expandIconDescription="Ver por qué" aria-label="Ver por qué">
