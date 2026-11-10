@@ -179,6 +179,9 @@ input:focus { outline-color: var(--focus); }
 .reveal::after { content: none; }
 .reveal { min-height: 0; }
 
+/* A hidden button stays hidden: the rule below would otherwise show it. */
+button[hidden] { display: none; }
+
 /* Carbon's primary button: text left, arrow right, full width. */
 button {
   width: 100%;
