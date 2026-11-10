@@ -248,6 +248,29 @@ class IdpSession(Base):
     # enroll one passkey; cleared once it does.
     enroll_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     webauthn_challenge: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # A session opened by an account link (0.25.0) on the IdP's password page:
+    # the app's session it came from, which a password change keeps.
+    linked_from: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AccountLink(Base):
+    """One-time code that takes an app's user to the IdP's password page (0.25.0).
+
+    The passkey belongs to the IdP's domain, which in the cloud is not the
+    app's, so the change happens there. Holds only hashes; redeeming the code
+    opens a short session of the IdP's page, tied to the app's session.
+    """
+
+    __tablename__ = "account_links"
+
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    return_to: Mapped[str] = mapped_column(String(512), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

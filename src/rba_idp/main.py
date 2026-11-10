@@ -18,6 +18,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from rba_contracts import (
     DecisionImpact,
+    AccountLinkRedeemRequest,
+    AccountLinkRedeemResponse,
+    AccountLinkRequest,
+    AccountLinkResponse,
     ChangePasswordRequest,
     StoppedAttempt,
     DecisionSummary,
@@ -343,6 +347,35 @@ def create_app(
     ) -> Response:
         _run(request, lambda svc: svc.dismiss_attempts(authorization, up_to))
         return Response(status_code=204)
+
+    @app.post("/account/password/link", response_model=AccountLinkResponse)
+    def account_link(
+        body: AccountLinkRequest,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> AccountLinkResponse:
+        """For an app: a one-time link to the IdP's password page (0.25.0)."""
+        return _run(request, lambda svc: svc.account_link(authorization, body))
+
+    @app.get("/account/password", include_in_schema=False)
+    def account_password_page(request: Request, code: str | None = None):
+        """The password change, on the IdP's domain where the passkey works.
+        The login page, in the app's look, opening on its password panel."""
+        client_id = request.app.state.login_service.account_link_branding(code)
+        boot = hosted_boot(request, client_id)
+        boot["account_link"] = code if client_id else None
+        return templates.TemplateResponse(request=request, name="login.html", context={"boot": boot})
+
+    @app.post("/account/link/redeem", response_model=AccountLinkRedeemResponse)
+    def redeem_account_link(body: AccountLinkRedeemRequest, request: Request) -> AccountLinkRedeemResponse:
+        return _run(request, lambda svc: svc.redeem_account_link(body))
+
+    @app.post("/account/password/options", response_model=PasskeyOptionsResponse)
+    def password_options(
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> PasskeyOptionsResponse:
+        return _run(request, lambda svc: svc.password_options(authorization))
 
     @app.post("/account/password", status_code=204)
     def change_password(

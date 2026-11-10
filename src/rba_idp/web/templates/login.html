@@ -158,9 +158,16 @@
             <input id="new-password-again" type="password" autocomplete="new-password" minlength="8" required>
             <p class="form-error" id="password-error" hidden></p>
             <button type="submit" id="password-submit">Cambiar contraseña</button>
+            <p class="hint" id="password-wait" hidden></p>
           </form>
           <p class="hint" id="password-done" hidden>Listo. Cerramos tus otras sesiones.</p>
-          <p class="back"><a href="#" id="password-skip">Ahora no</a></p>
+          <button type="button" id="password-back" hidden></button>
+          <p class="back" id="password-skip-row"><a href="#" id="password-skip">Ahora no</a></p>
+        </section>
+
+        <section id="panel-link" hidden>
+          <h1>El enlace venció</h1>
+          <p class="lede">Volvé a la aplicación y entrá de nuevo a cambiar la contraseña.</p>
         </section>
 
         <section id="panel-session" hidden>

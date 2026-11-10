@@ -15,6 +15,7 @@
     offer: document.getElementById("panel-offer"),
     attempts: document.getElementById("panel-attempts"),
     password: document.getElementById("panel-password"),
+    link: document.getElementById("panel-link"),
     unavailable: document.getElementById("panel-unavailable"),
   };
 
@@ -391,18 +392,55 @@
     if (pendingLogin) continueAfterLogin(pendingLogin);
   });
 
-  document.getElementById("attempts-change").addEventListener("click", () => {
+  // The password change (0.25.0) is confirmed with the passkey. Its options
+  // are fetched when the panel opens, so the button goes straight to the
+  // prompt (see stepUpKey); each try uses them up, so they are fetched again.
+  let passwordKey = null;
+  // Set when an app sent its user here to change the password: where to go back.
+  let accountReturn = null;
+
+  async function preparePassword() {
+    const button = document.getElementById("password-submit");
+    passwordKey = null;
+    button.disabled = true;
+    try {
+      const resp = await fetch("/account/password/options", { method: "POST", headers: authHeader() });
+      if (resp.status === 409) {
+        setError("password-error", "Para cambiar la contraseña necesitás una passkey.");
+        return;
+      }
+      if (resp.status !== 200) {
+        setError("password-error", "La sesión venció. Volvé a la aplicación y probá de nuevo.");
+        return;
+      }
+      passwordKey = publicKeyFromJson((await parseJson(resp)).public_key);
+    } catch {
+      setError("password-error", "Sin conexión con el servidor. Probá de nuevo.");
+    } finally {
+      button.disabled = passwordKey === null;
+    }
+  }
+
+  function openPassword() {
     setError("password-error", "");
     document.getElementById("form-password").reset();
     document.getElementById("form-password").hidden = false;
     document.getElementById("password-done").hidden = true;
     show("password");
     document.getElementById("current-password").focus();
-  });
+    preparePassword();
+  }
+
+  document.getElementById("attempts-change").addEventListener("click", openPassword);
 
   document.getElementById("password-skip").addEventListener("click", (event) => {
     event.preventDefault();
-    if (pendingLogin) continueAfterLogin(pendingLogin);
+    if (accountReturn) window.location.assign(accountReturn);
+    else if (pendingLogin) continueAfterLogin(pendingLogin);
+  });
+
+  document.getElementById("password-back").addEventListener("click", () => {
+    if (accountReturn) window.location.assign(accountReturn);
   });
 
   document.getElementById("form-password").addEventListener("submit", async (event) => {
@@ -417,33 +455,62 @@
       setError("password-error", "Elegí una contraseña distinta de la actual.");
       return;
     }
+    if (!window.PublicKeyCredential) {
+      setError("password-error", "Este navegador no admite passkeys.");
+      return;
+    }
+    if (!passwordKey) return;
     const button = document.getElementById("password-submit");
+    const wait = document.getElementById("password-wait");
     button.disabled = true;
     setError("password-error", "");
+    let done = false;
     try {
+      // First thing after the checks above: nothing awaited before the prompt.
+      const pending = navigator.credentials.get({ publicKey: passwordKey });
+      waiting(wait, true);
+      const cred = await pending;
+      waiting(wait, false);
+      if (!cred) {
+        setError("password-error", "Cancelado. Podés reintentar.");
+        return;
+      }
       const resp = await fetch("/account/password", {
         method: "POST",
         headers: { "content-type": "application/json", ...authHeader() },
-        body: JSON.stringify({ current_password: current, new_password: next }),
+        body: JSON.stringify({ current_password: current, new_password: next, credential: credentialToJson(cred) }),
       });
       if (resp.status === 204) {
+        done = true;
         document.getElementById("form-password").hidden = true;
         document.getElementById("password-done").hidden = false;
-        setTimeout(() => pendingLogin && continueAfterLogin(pendingLogin), 1500);
+        if (accountReturn) {
+          document.getElementById("password-skip-row").hidden = true;
+          document.getElementById("password-back").hidden = false;
+        } else {
+          setTimeout(() => pendingLogin && continueAfterLogin(pendingLogin), 1500);
+        }
         return;
       }
       setError(
         "password-error",
-        resp.status === 403
-          ? "La contraseña actual no es correcta."
-          : resp.status === 422
-            ? "La nueva contraseña necesita al menos 8 caracteres."
-            : "No se pudo cambiar. Probá de nuevo.",
+        resp.status === 400
+          ? "No se pudo confirmar con tu passkey."
+          : resp.status === 403
+            ? "La contraseña actual no es correcta."
+            : resp.status === 422
+              ? "La nueva contraseña necesita al menos 8 caracteres."
+              : "No se pudo cambiar. Probá de nuevo.",
       );
-    } catch {
-      setError("password-error", "Sin conexión con el servidor. Probá de nuevo.");
+    } catch (err) {
+      waiting(wait, false);
+      setError(
+        "password-error",
+        err && err.name === "NotAllowedError" ? "Cancelado. Podés reintentar." : "No se pudo cambiar. Probá de nuevo.",
+      );
     } finally {
-      button.disabled = false;
+      // The options were used up; a retry needs new ones.
+      if (!done) await preparePassword();
     }
   });
 
@@ -486,6 +553,12 @@
     }
   });
 
+  // Sent here by an app to change the password, with a link that no longer works.
+  if ("account_link" in boot && !boot.account_link) {
+    show("link");
+    return;
+  }
+
   if (boot.unknown_application) {
     show("unknown");
     return;
@@ -498,6 +571,34 @@
     boot.look === "tenant" ? "" : boot.console ? "Consola de RokuSec" : `Continuá a ${appName}`;
 
   const { publicKeyFromJson, credentialToJson, waiting, warnInApp } = window.RbaPasskey;
+
+  if (boot.account_link) {
+    show("checking");
+    (async () => {
+      try {
+        const resp = await fetch("/account/link/redeem", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code: boot.account_link }),
+        });
+        if (resp.status !== 200) {
+          show("link");
+          return;
+        }
+        const body = await parseJson(resp);
+        storeSession(body.session.token);
+        accountReturn = body.return_to;
+        // The code is used up: a reload must not try it again.
+        history.replaceState(null, "", "/account/password");
+        const name = (boot.branding && boot.branding.display_name) || boot.application_name;
+        document.getElementById("password-back").textContent = `Volver a ${name}`;
+        openPassword();
+      } catch {
+        show("unavailable");
+      }
+    })();
+    return;
+  }
 
   document.getElementById("form-login").addEventListener("submit", async (event) => {
     event.preventDefault();

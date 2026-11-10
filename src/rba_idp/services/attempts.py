@@ -9,7 +9,8 @@ change.
 A step-up counts only once it is clearly not the owner's: if the passkey is
 then passed the row is removed (it was them), and an open one is not shown
 for a minute (GRACE_SECONDS) while its challenge is still open. "Passkey siempre" step-ups are not recorded:
-they say nothing about who typed the password.
+they say nothing about who typed the password. Nor is anything shown to a
+user without a passkey: the change it leads to needs one.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from rba_contracts import StoppedAttempt
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from rba_idp.db.models import MfaChallenge, StoppedAttemptRow
+from rba_idp.db.models import MfaChallenge, StoppedAttemptRow, WebAuthnCredential
 
 
 def _utc(dt: datetime) -> datetime:
@@ -66,6 +67,10 @@ GRACE_SECONDS = 60
 
 
 def _visible(session: Session, user_id: str, now: datetime) -> list[StoppedAttemptRow]:
+    # The notice leads to a password change, which needs the passkey. A
+    # customer without one has not finished their first sign-in: nothing to show.
+    if session.scalar(select(WebAuthnCredential.credential_id).where(WebAuthnCredential.user_id == user_id).limit(1)) is None:
+        return []
     rows = session.scalars(
         select(StoppedAttemptRow)
         .where(StoppedAttemptRow.user_id == user_id, StoppedAttemptRow.shown_at.is_(None))

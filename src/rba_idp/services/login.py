@@ -36,7 +36,12 @@ from rba_contracts import (
     RiskEvaluateRequest,
     RiskEvaluateResponse,
     StoppedAttempt,
+    AccountLinkRedeemRequest,
+    AccountLinkRedeemResponse,
+    AccountLinkRequest,
+    AccountLinkResponse,
     ChangePasswordRequest,
+    PasskeyOptionsResponse,
     RiskLevel,
     SessionResponse,
     SessionToken,
@@ -53,6 +58,7 @@ from rba_idp import metrics
 from rba_idp.authz import effective_permissions, has_application_access
 from rba_idp.config import Settings
 from rba_idp.db.models import (
+    AccountLink,
     Application,
     AuthCode,
     GroupMembership,
@@ -81,6 +87,11 @@ from rba_idp.webauthn import request_options, verify_get
 logger = logging.getLogger(__name__)
 
 ACCESS_DENIED_DETAIL = "user is not granted access to this application"
+PASSKEY_REQUIRED = "a passkey is required to change the password"
+PASSKEY_NOT_CONFIRMED = "the passkey did not confirm the change"
+# The link from the app lives a couple of minutes; the page it opens, ten.
+ACCOUNT_LINK_SECONDS = 120
+ACCOUNT_PAGE_SECONDS = 10 * 60
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -96,6 +107,11 @@ def match_redirect_uri(registered: str | None, requested: str | None) -> str | N
     if requested is None or requested == "":
         return registered
     return registered if requested == registered else None
+
+
+def _origin(uri: str) -> tuple[str, str, int | None]:
+    parts = urlparse(uri)
+    return parts.scheme, (parts.hostname or "").lower(), parts.port
 
 
 def append_query(uri: str, **params: str) -> str:
@@ -964,25 +980,110 @@ class LoginService:
             user = self._session_user(session, authorization, now)
             stopped_attempts.mark_seen(session, user.user_id, up_to, now)
 
+    # ------------------------------------------------------------ password change (0.25.0)
+
+    def _live_session(self, session: Session, authorization: str | None, now: datetime) -> tuple[IdpSession, User]:
+        raw = bearer_token(authorization)
+        row = session.get(IdpSession, hash_session_token(raw)) if raw is not None else None
+        if row is None or _as_utc(row.expires_at) <= now:
+            raise HTTPException(status_code=401, detail="missing or expired session")
+        user = session.get(User, row.user_id)
+        if user is None or not user.enabled:
+            raise HTTPException(status_code=401, detail="missing or expired session")
+        return row, user
+
+    def account_link(self, authorization: str | None, body: AccountLinkRequest) -> AccountLinkResponse:
+        """A one-time link for the app's user to the IdP's password page.
+
+        The passkey that confirms the change belongs to the IdP's domain, which
+        in the cloud is not the app's, so the change happens on the IdP's page.
+        ``return_to`` must be on the origin of the app's registered redirect
+        URI: the link cannot send anyone elsewhere.
+        """
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            row, _ = self._live_session(session, authorization, now)
+            app = session.get(Application, row.application_id)
+            if app is None or not app.redirect_uri or _origin(body.return_to) != _origin(app.redirect_uri):
+                raise HTTPException(status_code=422, detail="return_to is not on the application's origin")
+            code = new_session_token()
+            expires = now + timedelta(seconds=ACCOUNT_LINK_SECONDS)
+            session.add(AccountLink(
+                code_hash=hash_session_token(code), session_hash=row.token_hash,
+                return_to=body.return_to, expires_at=expires,
+            ))
+            return AccountLinkResponse(path=f"/account/password?{urlencode({'code': code})}", expires_at=expires)
+
+    def account_link_branding(self, code: str | None) -> str | None:
+        """The public client_id of the app a link came from (for the page's look), without using it up."""
+        if not code:
+            return None
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            link = session.get(AccountLink, hash_session_token(code))
+            if link is None or link.consumed_at is not None or _as_utc(link.expires_at) <= now:
+                return None
+            origin = session.get(IdpSession, link.session_hash)
+            app = session.get(Application, origin.application_id) if origin is not None else None
+            return app.client_id if app is not None else None
+
+    def redeem_account_link(self, body: AccountLinkRedeemRequest) -> AccountLinkRedeemResponse:
+        """The IdP's page trades the code for a short session of its own."""
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            link = session.get(AccountLink, hash_session_token(body.code))
+            if link is None or link.consumed_at is not None or _as_utc(link.expires_at) <= now:
+                raise HTTPException(status_code=400, detail="unknown or expired link")
+            origin = session.get(IdpSession, link.session_hash)
+            user = session.get(User, origin.user_id) if origin is not None else None
+            if origin is None or _as_utc(origin.expires_at) <= now or user is None or not user.enabled:
+                raise HTTPException(status_code=400, detail="unknown or expired link")
+            link.consumed_at = now
+            raw = new_session_token()
+            expires = min(_as_utc(origin.expires_at), now + timedelta(seconds=ACCOUNT_PAGE_SECONDS))
+            session.add(IdpSession(
+                token_hash=hash_session_token(raw), user_id=origin.user_id,
+                application_id=origin.application_id, expires_at=expires,
+                linked_from=origin.token_hash,
+            ))
+            return AccountLinkRedeemResponse(
+                session=SessionToken(token=raw, expires_at=expires), return_to=link.return_to
+            )
+
+    def password_options(self, authorization: str | None) -> PasskeyOptionsResponse:
+        """The passkey request that confirms a password change."""
+        now = datetime.now(timezone.utc)
+        with session_scope(self._session_factory) as session:
+            row, user = self._live_session(session, authorization, now)
+            cred_ids = list(session.scalars(
+                select(WebAuthnCredential.credential_id).where(WebAuthnCredential.user_id == user.user_id)
+            ))
+            if not cred_ids:
+                raise HTTPException(status_code=409, detail=PASSKEY_REQUIRED)
+            nonce, public_key = request_options(self._settings, cred_ids)
+            row.webauthn_challenge = nonce
+            return PasskeyOptionsResponse(public_key=public_key)
+
     def change_password(self, authorization: str | None, body: ChangePasswordRequest) -> None:
         """The owner changes their password from a live session (contracts 0.22.0).
 
-        The current password is asked again: a session left open must not be
-        enough to take the account. Every other session of the user ends, so
-        whoever knew the old password and got in somewhere is signed out.
+        Confirmed twice: the current password, and the user's passkey (0.25.0),
+        so neither a session left open nor a leaked password is enough. The
+        passkey is checked first and used up either way, so without it the
+        endpoint says nothing about the password. Every other session of the
+        user ends, so whoever knew the old password and got in somewhere is
+        signed out; the app's session that opened this page stays.
         """
-        raw = bearer_token(authorization)
-        if raw is None:
-            raise HTTPException(status_code=401, detail="missing or expired session")
         now = datetime.now(timezone.utc)
         with session_scope(self._session_factory) as session:
-            current = hash_session_token(raw)
-            row = session.get(IdpSession, current)
-            if row is None or _as_utc(row.expires_at) <= now:
-                raise HTTPException(status_code=401, detail="missing or expired session")
-            user = session.get(User, row.user_id)
-            if user is None or not user.enabled:
-                raise HTTPException(status_code=401, detail="missing or expired session")
+            row, user = self._live_session(session, authorization, now)
+            expected = row.webauthn_challenge
+            row.webauthn_challenge = None
+            confirmed = expected is not None and self._passkey_confirms(session, user.user_id, expected, body.credential)
+        if not confirmed:
+            raise HTTPException(status_code=400, detail=PASSKEY_NOT_CONFIRMED)
+        with session_scope(self._session_factory) as session:
+            row, user = self._live_session(session, authorization, now)
             if not verify_password(body.current_password, user.password_hash):
                 raise HTTPException(status_code=403, detail="wrong current password")
             if body.new_password == body.current_password:
@@ -990,10 +1091,26 @@ class LoginService:
             user.password_hash = hash_password(body.new_password)
             # The password the attempts used no longer works: nothing left to warn about.
             stopped_attempts.mark_seen(session, user.user_id, now, now)
+            keep = {row.token_hash} | ({row.linked_from} if row.linked_from else set())
             session.execute(
-                delete(IdpSession).where(IdpSession.user_id == user.user_id, IdpSession.token_hash != current)
+                delete(IdpSession).where(IdpSession.user_id == user.user_id, IdpSession.token_hash.not_in(keep))
             )
             logger.info("password changed by its owner user_id=%s", user.user_id)
+
+    def _passkey_confirms(self, session: Session, user_id: str, expected: bytes, credential: dict) -> bool:
+        cred_id = credential.get("id")
+        stored = session.get(WebAuthnCredential, cred_id) if isinstance(cred_id, str) else None
+        if stored is None or stored.user_id != user_id:
+            return False
+        try:
+            verified = verify_get(
+                self._settings, credential=credential, expected_challenge=expected,
+                public_key=stored.public_key, sign_count=stored.sign_count,
+            )
+        except (WebAuthnException, ValueError, TypeError, KeyError):
+            return False
+        stored.sign_count = verified.new_sign_count
+        return True
 
 
 # Reasons from the login guard (ADR-0045): counters on the source and on the
