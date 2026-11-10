@@ -10,7 +10,7 @@ from rba_contracts import Action, LoginOutcome, Reason, RiskLevel
 from rba_idp.db.models import MfaChallenge
 from tests.helpers import LOGIN, MOCK_OTP, StubPdp, client_for
 
-TOKYO = {**LOGIN, "country": "JP"}
+TOKYO = {**LOGIN, "country": "JP", "ip_address": "198.51.100.7", "device_type": "desktop", "os": "Windows", "browser": "Chrome"}
 
 
 def _expire_challenges(client) -> None:
@@ -36,6 +36,10 @@ def test_an_abandoned_step_up_is_told_once_on_the_next_sign_in() -> None:
         again = _sign_in(client, pdp)
     [attempt] = first["attempts"]
     assert attempt["stopped_by"] == "passkey" and attempt["country"] == "JP"
+    # "Ver detalles": the attempt's own device and address (0.24.0).
+    assert (attempt["ip_address"], attempt["device_type"], attempt["os"], attempt["browser"]) == (
+        "198.51.100.7", "desktop", "Windows", "Chrome",
+    )
     assert again.get("attempts", []) == []
 
 

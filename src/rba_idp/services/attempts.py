@@ -3,7 +3,8 @@
 The engine stops an attacker who has the password: a step-up they cannot
 pass, or a refusal. The attacker is kept out, but the password is known to
 someone, and only its owner can change it. So the owner is told on their next
-sign-in, once, with where and when, and offered a password change.
+sign-in, once, with where, when and from what device, and offered a password
+change.
 
 A step-up counts only once it is clearly not the owner's: if the passkey is
 then passed the row is removed (it was them), and an open one is not shown
@@ -34,6 +35,10 @@ def record(
     stopped_by: str,
     challenge_id: str | None = None,
     now: datetime | None = None,
+    ip_address: str | None = None,
+    device_type: str | None = None,
+    os: str | None = None,
+    browser: str | None = None,
 ) -> None:
     session.add(
         StoppedAttemptRow(
@@ -42,6 +47,10 @@ def record(
             country=(country or None) and country[:2].upper(),
             stopped_by=stopped_by,
             challenge_id=challenge_id,
+            ip_address=(ip_address or None) and ip_address[:64],
+            device_type=(device_type or None) and device_type[:16],
+            os=(os or None) and os[:64],
+            browser=(browser or None) and browser[:64],
         )
     )
 
@@ -78,6 +87,10 @@ def _public(row: StoppedAttemptRow) -> StoppedAttempt:
         occurred_at=_utc(row.occurred_at),
         country=row.country,
         stopped_by=row.stopped_by,  # type: ignore[arg-type]
+        ip_address=row.ip_address,
+        device_type=row.device_type,
+        os=row.os,
+        browser=row.browser,
     )
 
 

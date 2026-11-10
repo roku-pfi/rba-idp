@@ -365,5 +365,10 @@ class StoppedAttemptRow(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     stopped_by: Mapped[str] = mapped_column(String(16), nullable=False)  # passkey | blocked
+    # The attempt's device and address, shown under "Ver detalles" (0.24.0).
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    device_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    os: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    browser: Mapped[str | None] = mapped_column(String(64), nullable=True)
     challenge_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     shown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

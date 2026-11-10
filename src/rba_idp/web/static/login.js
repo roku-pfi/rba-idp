@@ -222,21 +222,28 @@
   function showAttempts(attempts) {
     const facts = document.getElementById("attempts-facts");
     facts.replaceChildren();
-    // One line per minute, place and outcome: a burst reads as one attempt, ×n.
+    // One line per minute, place and device: a burst reads as one attempt, ×n.
+    const DEVICE = { desktop: "computadora", mobile: "celular", tablet: "tablet" };
+    const deviceOf = (a) => {
+      const what = [a.browser, a.os].filter(Boolean).join(" en ");
+      return [what, DEVICE[a.device_type]].filter(Boolean).join(" · ");
+    };
     const lines = [];
     attempts.forEach((a) => {
       const when = WHEN.format(new Date(a.occurred_at));
+      const device = deviceOf(a);
       const last = lines[lines.length - 1];
-      if (last && last.when === when && last.country === a.country && last.by === a.stopped_by) last.n += 1;
-      else lines.push({ when, country: a.country, by: a.stopped_by, n: 1 });
+      if (last && last.when === when && last.country === a.country && last.device === device) last.n += 1;
+      else lines.push({ when, country: a.country, device, ip: a.ip_address, n: 1 });
     });
     lines.slice(0, 4).forEach((line) => {
       const dt = document.createElement("dt");
       dt.textContent = line.when;
       const dd = document.createElement("dd");
       const where = line.country ? (COUNTRY?.of(line.country) ?? line.country) : "Origen desconocido";
-      // Where, not how it was stopped (see the bank's banner).
-      dd.textContent = `Ingreso sospechoso desde ${where}${line.n > 1 ? ` (${line.n} veces)` : ""}`;
+      // Where and from what, never how it was stopped (see the bank's banner).
+      const parts = [`Desde ${where}`, line.device, line.ip && `IP ${line.ip}`].filter(Boolean);
+      dd.textContent = `${parts.join(" · ")}${line.n > 1 ? ` (${line.n} veces)` : ""}`;
       facts.append(dt, dd);
     });
     show("attempts");

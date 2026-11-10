@@ -682,7 +682,7 @@ class LoginService:
                 user_id, attempt.application_id, action, decision
             )
             if suspicious:
-                self._record_stopped(user_id, country, "passkey", challenge_id=str(challenge_id))
+                self._record_stopped(user_id, country, "passkey", attempt, challenge_id=str(challenge_id))
             # RF-17: say "unusual" only when the engine asked for it, not when
             # the tenant always asks for a passkey or the engine is down.
             unusual = (
@@ -691,7 +691,7 @@ class LoginService:
                 and decision.action != Action.ALLOW
             )
         elif action == Action.BLOCK and suspicious:
-            self._record_stopped(user_id, country, "blocked")
+            self._record_stopped(user_id, country, "blocked", attempt)
 
         return LoginResponse(
             outcome=outcome_from_action(action),
@@ -710,11 +710,25 @@ class LoginService:
         )
 
     def _record_stopped(
-        self, user_id: str, country: str | None, stopped_by: str, *, challenge_id: str | None = None
+        self,
+        user_id: str,
+        country: str | None,
+        stopped_by: str,
+        attempt: _Attempt,
+        *,
+        challenge_id: str | None = None,
     ) -> None:
         with session_scope(self._session_factory) as session:
             stopped_attempts.record(
-                session, user_id=user_id, country=country, stopped_by=stopped_by, challenge_id=challenge_id
+                session,
+                user_id=user_id,
+                country=country,
+                stopped_by=stopped_by,
+                challenge_id=challenge_id,
+                ip_address=attempt.ip_address,
+                device_type=attempt.device_type,
+                os=attempt.os,
+                browser=attempt.browser,
             )
 
     def _unseen_attempts(self, user_id: str) -> list[StoppedAttempt]:
