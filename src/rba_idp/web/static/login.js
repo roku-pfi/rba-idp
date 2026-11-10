@@ -235,8 +235,8 @@
       dt.textContent = line.when;
       const dd = document.createElement("dd");
       const where = line.country ? (COUNTRY?.of(line.country) ?? line.country) : "Origen desconocido";
-      const what = line.by === "passkey" ? "le pedimos tu passkey" : "lo bloqueamos";
-      dd.textContent = `${where} · ${what}${line.n > 1 ? ` (${line.n} veces)` : ""}`;
+      // Where, not how it was stopped (see the bank's banner).
+      dd.textContent = `Ingreso sospechoso desde ${where}${line.n > 1 ? ` (${line.n} veces)` : ""}`;
       facts.append(dt, dd);
     });
     show("attempts");
